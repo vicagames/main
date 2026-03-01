@@ -1,0 +1,807 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Viça Games</title>
+  <meta name="description" content="Índice de jogos da Viça Games." />
+
+  <style>
+    :root{
+      --bg:#06122e;
+      --blue:#0b63ff;
+      --cyan:#00a7ff;
+      --yellow:#ffd400;
+      --red:#ff2a2a;
+      --white:#f7fbff;
+
+      --panel: rgba(0,0,0,.22);
+      --panel2: rgba(0,0,0,.14);
+
+      --text: rgba(247,251,255,.95);
+      --muted: rgba(247,251,255,.80);
+    }
+
+    *{ box-sizing:border-box; }
+    html,body{ height:100%; }
+    body{
+      margin:0;
+      color:var(--text);
+      background: var(--bg);
+      font-family: ui-monospace, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      image-rendering: pixelated;
+      overflow-x:hidden;
+    }
+
+    canvas#stars{
+      position:fixed;
+      inset:0;
+      width:100%;
+      height:100%;
+      z-index:-1;
+      image-rendering: pixelated;
+    }
+
+    .wrap{
+      max-width: 980px;
+      margin: 0 auto;
+      padding: 18px 14px 40px;
+    }
+
+    .screen{
+      background: var(--panel);
+      padding: 16px;
+    }
+
+    .stripe{
+      height: 10px;
+      background: var(--blue);
+      margin-bottom: 14px;
+      position: relative;
+    }
+    .stripe::after{
+      content:"";
+      position:absolute;
+      left:0; top:0; bottom:0;
+      width: 120px;
+      background: var(--yellow);
+    }
+    .stripe::before{
+      content:"";
+      position:absolute;
+      right:0; top:0; bottom:0;
+      width: 120px;
+      background: var(--red);
+    }
+
+    .hero{
+      display:flex;
+      flex-direction:column;
+      gap: 8px;
+      align-items:center;
+      text-align:center;
+    }
+
+    .logo{
+      display:flex;
+      flex-direction:column;
+      align-items:center;
+      gap: 4px;
+      margin: 2px 0 0;
+    }
+
+    .logo .vica{
+      font-family: "SEGA", "Sega Logo Font", "Arial Black", Impact, system-ui, sans-serif;
+      font-weight: 900;
+      font-size: 76px;
+      letter-spacing: 2px;
+      line-height: 1;
+
+      background: repeating-linear-gradient(
+        to bottom,
+        var(--blue) 0px,
+        var(--blue) 10px,
+        #084fd6 10px,
+        #084fd6 14px
+      );
+      -webkit-background-clip:text;
+      background-clip:text;
+      color: transparent;
+
+      -webkit-text-stroke: 4px var(--white);
+      paint-order: stroke fill;
+
+      text-shadow: 3px 3px 0 rgba(0,0,0,.35);
+    }
+
+    .logo .games{
+      display:inline-block;
+      font-weight: 900;
+      font-size: 22px;
+      letter-spacing: 6px;
+      text-transform: uppercase;
+      color: var(--yellow);
+      background: rgba(0,0,0,.18);
+      padding: 6px 12px;
+      line-height: 1;
+    }
+
+    .subtitle{
+      margin: 4px 0 0;
+      font-size: 12px;
+      color: var(--muted);
+      letter-spacing: 1px;
+      text-transform: uppercase;
+    }
+
+    .gameBox{
+      width:100%;
+      background: var(--panel2);
+      padding: 10px;
+      margin-top: 8px;
+    }
+
+    .hud{
+      display:flex;
+      justify-content:space-between;
+      gap: 10px;
+      flex-wrap:wrap;
+      font-size: 12px;
+      letter-spacing: 1px;
+      margin-bottom: 8px;
+      text-transform: uppercase;
+      color: rgba(247,251,255,.90);
+    }
+    .hud strong{ color: var(--yellow); }
+
+    #arena{
+      width:100%;
+      height: 240px;
+      display:block;
+      background: rgba(0,0,0,.22);
+      image-rendering: pixelated;
+      outline: none;
+    }
+
+    .controls{
+      margin-top: 8px;
+      font-size: 12px;
+      color: rgba(247,251,255,.78);
+      padding: 8px;
+      line-height: 1.35;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      background: rgba(0,0,0,.16);
+    }
+
+    .section{
+      margin-top: 14px;
+      padding: 12px;
+      background: rgba(0,0,0,.12);
+    }
+
+    .section h2{
+      margin:0 0 10px;
+      font-size: 14px;
+      letter-spacing: 2px;
+      text-transform: uppercase;
+      color: rgba(247,251,255,.92);
+    }
+
+    .gameList{
+      list-style:none;
+      margin:0;
+      padding:0;
+      display:flex;
+      flex-direction:column;
+      gap: 8px;
+    }
+
+    .gameItem{
+      background: rgba(0,0,0,.18);
+      padding: 10px 10px;
+      display:flex;
+      justify-content:space-between;
+      gap: 10px;
+      align-items:center;
+      flex-wrap:wrap;
+    }
+
+    .gameName{
+      display:flex;
+      gap: 10px;
+      align-items:center;
+      flex-wrap:wrap;
+    }
+
+    .dot{
+      width: 10px;
+      height: 10px;
+      background: var(--yellow);
+    }
+
+    .tag{
+      font-size: 12px;
+      padding: 2px 6px;
+      background: rgba(255,255,255,.10);
+      letter-spacing: 1px;
+      text-transform: uppercase;
+      color: var(--white);
+    }
+
+    .btn{
+      display:inline-block;
+      text-decoration:none;
+      color: #06122e;
+      padding: 8px 10px;
+      background: var(--yellow);
+      letter-spacing: 1px;
+      text-transform: uppercase;
+      font-size: 12px;
+      white-space: nowrap;
+      font-weight: 900;
+    }
+    .btn:hover{
+      background: var(--red);
+      color: var(--white);
+    }
+
+    .footer{
+      margin-top: 14px;
+      text-align:center;
+      font-size: 12px;
+      letter-spacing: 2px;
+      text-transform: uppercase;
+      color: rgba(247,251,255,.72);
+      padding: 10px 0 2px;
+      background: rgba(0,0,0,.10);
+    }
+
+    @media (min-width: 780px){
+      #arena{ height: 280px; }
+    }
+
+    @media (max-width: 420px){
+      .logo .vica{ font-size: 64px; }
+      .logo .games{ font-size: 18px; letter-spacing: 5px; }
+    }
+  </style>
+</head>
+
+<body>
+  <canvas id="stars" aria-hidden="true"></canvas>
+
+  <main class="wrap">
+    <div class="screen">
+      <div class="stripe" aria-hidden="true"></div>
+
+      <header class="hero">
+        <div class="logo" aria-label="Viça Games">
+          <div class="vica">Viça</div>
+          <div class="games">Games</div>
+        </div>
+
+        <p class="subtitle">Entrada jogável: bata nas naves (kamikaze) e depois escolha um jogo</p>
+
+        <div class="gameBox">
+          <div class="hud">
+            <div>Pontos: <strong id="score">0</strong></div>
+            <div>Vidas: <strong id="lives">3</strong></div>
+            <div>Alvos: <strong id="targets">0</strong></div>
+          </div>
+
+          <!-- tabindex para garantir foco no preview -->
+          <canvas id="arena" width="640" height="280" tabindex="0" aria-label="Entrada jogável"></canvas>
+
+          <div class="controls">
+            Controles: WASD ou setas = mover | Shift = investida | R = reiniciar
+          </div>
+        </div>
+      </header>
+
+      <section class="section" aria-labelledby="games-title">
+        <h2 id="games-title">Jogos</h2>
+        <ul id="games" class="gameList"></ul>
+      </section>
+
+      <footer class="footer">
+        <small>Viça Games</small>
+      </footer>
+    </div>
+  </main>
+
+  <script>
+    // MENU FÁCIL DE ALTERAR (edite aqui)
+    const GAMES = [
+      { title: "Capivara Aventura", href: "./jogos/capivara-aventura/index.html", tag: "2D" },
+      { title: "Pug e Capivara", href: "./jogos/pug-capivara/index.html", tag: "Ação" },
+      { title: "Fuga da Carrocinha", href: "./jogos/fuga-carrocinha/index.html", tag: "Corrida" }
+    ];
+
+    // ---------- Lista simples ----------
+    const $list = document.getElementById("games");
+    function escapeHtml(s) {
+      return String(s ?? "")
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;")
+        .replaceAll('"', "&quot;")
+        .replaceAll("'", "&#039;");
+    }
+    function renderGames() {
+      $list.innerHTML = "";
+      for (const g of GAMES) {
+        const li = document.createElement("li");
+        li.className = "gameItem";
+        li.innerHTML = `
+          <div class="gameName">
+            <span class="dot" aria-hidden="true"></span>
+            <span>${escapeHtml(g.title)}</span>
+            ${g.tag ? `<span class="tag">${escapeHtml(g.tag)}</span>` : ""}
+          </div>
+          <a class="btn" href="${escapeHtml(g.href)}">Jogar</a>
+        `;
+        $list.appendChild(li);
+      }
+    }
+
+    // ---------- Fundo de estrelas pixel (sem degradê) ----------
+    function initStars() {
+      const canvas = document.getElementById("stars");
+      const ctx = canvas.getContext("2d", { alpha: false });
+
+      const state = { w:0, h:0, dpr:1, stars:[] };
+      const colors = ["#f7fbff", "#ffd400", "#ff2a2a", "#00a7ff", "#0b63ff"];
+
+      function resize() {
+        state.dpr = Math.min(window.devicePixelRatio || 1, 2);
+        state.w = Math.floor(window.innerWidth);
+        state.h = Math.floor(window.innerHeight);
+
+        canvas.width  = Math.floor(state.w * state.dpr);
+        canvas.height = Math.floor(state.h * state.dpr);
+        canvas.style.width = state.w + "px";
+        canvas.style.height = state.h + "px";
+        ctx.setTransform(state.dpr, 0, 0, state.dpr, 0, 0);
+        ctx.imageSmoothingEnabled = false;
+
+        const count = Math.max(180, Math.floor((state.w * state.h) / 9000));
+        state.stars = Array.from({ length: count }, () => ({
+          x: Math.random() * state.w,
+          y: Math.random() * state.h,
+          s: Math.random() < 0.85 ? 1 : 2,
+          v: 0.6 + Math.random() * 1.8,
+          c: colors[(Math.random() * colors.length) | 0]
+        }));
+      }
+
+      function snap(v, step) { return Math.floor(v / step) * step; }
+
+      function frame() {
+        ctx.fillStyle = "#06122e";
+        ctx.fillRect(0, 0, state.w, state.h);
+
+        const px = 3;
+        for (const st of state.stars) {
+          st.y += st.v;
+          if (st.y > state.h + 8) { st.y = -8; st.x = Math.random() * state.w; }
+          ctx.fillStyle = st.c;
+          ctx.fillRect(snap(st.x, px), snap(st.y, px), st.s * px, st.s * px);
+        }
+        requestAnimationFrame(frame);
+      }
+
+      window.addEventListener("resize", resize, { passive: true });
+      resize();
+      frame();
+    }
+
+    // ---------- Entrada jogável (kamikaze / colisão) ----------
+    function initIntroGame() {
+      const canvas = document.getElementById("arena");
+      const ctx = canvas.getContext("2d", { alpha: true });
+      ctx.imageSmoothingEnabled = false;
+
+      // Em alguns previews, teclado só funciona depois de clicar
+      canvas.addEventListener("pointerdown", () => canvas.focus());
+
+      const $score = document.getElementById("score");
+      const $lives = document.getElementById("lives");
+      const $targets = document.getElementById("targets");
+
+      const px = 4;
+      const W = () => canvas.width;
+      const H = () => canvas.height;
+
+      const keys = new Set();
+      document.addEventListener("keydown", (e) => {
+        const k = e.key.toLowerCase();
+        if (["arrowup","arrowdown","arrowleft","arrowright","w","a","s","d","shift","r"].includes(k)) {
+          e.preventDefault();
+        }
+        keys.add(k);
+
+        if (k === "r") {
+          // reinício completo
+          reset(false);
+        }
+      }, { passive: false });
+
+      document.addEventListener("keyup", (e) => keys.delete(e.key.toLowerCase()));
+
+      function rand(a,b){ return a + Math.random()*(b-a); }
+      function clamp(v,a,b){ return Math.max(a, Math.min(b, v)); }
+
+      function drawShip(x, y, angle, palette) {
+        const sprite = [
+          [0,0,0,0,0,3,3,3,3,0,0,0,0,0,0,0],
+          [0,0,0,2,2,1,1,1,1,4,4,0,0,0,0,0],
+          [0,2,2,1,1,1,1,1,1,1,4,4,0,0,0,0],
+          [5,2,1,1,1,1,1,1,1,1,1,4,4,0,0,0],
+          [5,2,1,1,1,1,1,1,1,1,1,4,4,0,0,0],
+          [0,2,2,1,1,1,1,1,1,1,4,4,0,0,0,0],
+          [0,0,0,2,2,1,1,1,1,4,4,0,0,0,0,0],
+          [0,0,0,0,0,6,6,6,6,0,0,0,0,0,0,0]
+        ];
+
+        ctx.save();
+        ctx.translate(x, y);
+        ctx.rotate(angle);
+
+        const sw = 16 * px;
+        const sh = 8 * px;
+        const ox = -sw / 2;
+        const oy = -sh / 2;
+
+        for (let r=0; r<sprite.length; r++) {
+          for (let c=0; c<sprite[r].length; c++) {
+            const v = sprite[r][c];
+            if (v === 0) continue;
+            let col = palette.body;
+            if (v === 2) col = palette.green;
+            if (v === 3) col = palette.canopy;
+            if (v === 4) col = palette.nose;
+            if (v === 5) col = palette.thruster;
+            if (v === 6) col = palette.trim;
+
+            ctx.fillStyle = col;
+            ctx.fillRect(ox + c*px, oy + r*px, px, px);
+          }
+        }
+
+        ctx.restore();
+      }
+
+      const palettes = {
+        player: { body:"#f7fbff", green:"#00a7ff", canopy:"#0b63ff", nose:"#ff2a2a", thruster:"#ffd400", trim:"#f7fbff" },
+        enemy1: { body:"#f7fbff", green:"#ffd400", canopy:"#00a7ff", nose:"#0b63ff", thruster:"#ff2a2a", trim:"#f7fbff" },
+        enemy2: { body:"#f7fbff", green:"#ff2a2a", canopy:"#00a7ff", nose:"#ffd400", thruster:"#0b63ff", trim:"#f7fbff" }
+      };
+
+      function makeShip(kind, x, y) {
+        return {
+          kind,
+          x, y,
+          vx: rand(-1.2, 1.2),
+          vy: rand(-1.2, 1.2),
+          angle: rand(0, Math.PI*2),
+          alive: true,
+          hp: kind === "player" ? 3 : 2,
+          inv: 0,
+          dash: 0
+        };
+      }
+
+      let score = 0;
+      let lives = 3;
+      let ships = [];
+      let particles = [];
+      let targetsDown = 0;
+      let gameOver = false; // <-- chave do reinício funcionar sempre
+
+      function updateHud() {
+        $score.textContent = String(score);
+        $lives.textContent = String(lives);
+        $targets.textContent = String(targetsDown);
+      }
+
+      function reset(keepScore=false) {
+        gameOver = false;
+        ships = [];
+        particles = [];
+        targetsDown = 0;
+
+        if (!keepScore) score = 0;
+        lives = 3;
+
+        ships.push(makeShip("player", W()/2, H()/2));
+        ships.push(makeShip("enemy1", W()/2 - 170, H()/2 - 40));
+        ships.push(makeShip("enemy2", W()/2 + 170, H()/2 + 40));
+
+        ships[0].vx = 0; ships[0].vy = 0;
+        ships[0].inv = 40;
+
+        updateHud();
+      }
+
+      function spawnExplosion(x,y, palette) {
+        const cols = [palette.nose, palette.canopy, palette.green, palette.thruster, palette.body];
+        for (let i=0;i<28;i++){
+          particles.push({
+            x, y,
+            vx: rand(-2.4,2.4),
+            vy: rand(-2.4,2.4),
+            life: 16 + (Math.random()*16|0),
+            c: cols[(Math.random()*cols.length)|0],
+            s: (Math.random() < 0.8 ? 1 : 2)
+          });
+        }
+      }
+
+      function wrapOrBounce(s) {
+        const r = 18*px/4;
+        if (s.x < r) { s.x = r; s.vx *= -0.9; }
+        if (s.x > W()-r) { s.x = W()-r; s.vx *= -0.9; }
+        if (s.y < r) { s.y = r; s.vy *= -0.9; }
+        if (s.y > H()-r) { s.y = H()-r; s.vy *= -0.9; }
+      }
+
+      function damage(ship, amount) {
+        if (ship.inv > 0 || gameOver) return;
+        ship.hp -= amount;
+        ship.inv = 18;
+
+        if (ship.hp <= 0) {
+          ship.alive = false;
+          const pal = ship.kind === "player" ? palettes.player : (ship.kind === "enemy1" ? palettes.enemy1 : palettes.enemy2);
+          spawnExplosion(ship.x, ship.y, pal);
+
+          if (ship.kind === "player") {
+            lives -= 1;
+            updateHud();
+
+            if (lives < 0) {
+              gameOver = true;
+              return;
+            }
+
+            setTimeout(() => {
+              ship.alive = true;
+              ship.hp = 3;
+              ship.x = W()/2;
+              ship.y = H()/2;
+              ship.vx = 0;
+              ship.vy = 0;
+              ship.angle = 0;
+              ship.inv = 50;
+            }, 450);
+          } else {
+            score += 100;
+            targetsDown += 1;
+            updateHud();
+
+            setTimeout(() => {
+              ship.alive = true;
+              ship.hp = 2;
+              ship.x = rand(80, W()-80);
+              ship.y = rand(60, H()-60);
+              ship.vx = rand(-1.4,1.4);
+              ship.vy = rand(-1.4,1.4);
+              ship.angle = rand(0, Math.PI*2);
+              ship.inv = 40;
+            }, 550);
+          }
+        }
+      }
+
+      function collide(a,b) {
+        if (!a.alive || !b.alive || gameOver) return;
+
+        const dx = b.x - a.x;
+        const dy = b.y - a.y;
+        const dist2 = dx*dx + dy*dy;
+
+        const ra = 18*px/4;
+        const rb = 18*px/4;
+        const r = ra + rb;
+
+        if (dist2 > r*r) return;
+
+        const dist = Math.sqrt(dist2) || 0.0001;
+        const nx = dx / dist;
+        const ny = dy / dist;
+
+        const overlap = (r - dist);
+        a.x -= nx * (overlap * 0.5);
+        a.y -= ny * (overlap * 0.5);
+        b.x += nx * (overlap * 0.5);
+        b.y += ny * (overlap * 0.5);
+
+        const rvx = b.vx - a.vx;
+        const rvy = b.vy - a.vy;
+        const rel = rvx*nx + rvy*ny;
+
+        if (rel > 0) return;
+
+        const e = 0.85;
+        const j = -(1 + e) * rel / 2;
+        const ix = j * nx;
+        const iy = j * ny;
+
+        a.vx -= ix;
+        a.vy -= iy;
+        b.vx += ix;
+        b.vy += iy;
+
+        const speed = Math.abs(rel);
+        const hit = speed > 2.2 ? 2 : (speed > 1.2 ? 1 : 0);
+
+        const aDash = a.dash > 0 ? 1 : 0;
+        const bDash = b.dash > 0 ? 1 : 0;
+
+        const dmgA = hit + bDash;
+        const dmgB = hit + aDash;
+
+        if (hit > 0 || aDash || bDash) {
+          const palA = a.kind === "player" ? palettes.player : (a.kind === "enemy1" ? palettes.enemy1 : palettes.enemy2);
+          const palB = b.kind === "player" ? palettes.player : (b.kind === "enemy1" ? palettes.enemy1 : palettes.enemy2);
+          spawnExplosion((a.x+b.x)/2, (a.y+b.y)/2, Math.random()<0.5 ? palA : palB);
+        }
+
+        if (dmgA > 0) damage(a, dmgA);
+        if (dmgB > 0) damage(b, dmgB);
+      }
+
+      function aiStep(s) {
+        const p = ships[0];
+        if (!p || !p.alive || gameOver) return;
+
+        const dx = p.x - s.x;
+        const dy = p.y - s.y;
+        const ang = Math.atan2(dy, dx);
+
+        let da = ang - s.angle;
+        while (da > Math.PI) da -= Math.PI*2;
+        while (da < -Math.PI) da += Math.PI*2;
+        s.angle += clamp(da, -0.06, 0.06);
+
+        const thrust = 0.10;
+        s.vx += Math.cos(s.angle) * thrust;
+        s.vy += Math.sin(s.angle) * thrust;
+
+        if (Math.random() < 0.01) s.dash = 14;
+        if (s.dash > 0) {
+          s.vx += Math.cos(s.angle) * 0.22;
+          s.vy += Math.sin(s.angle) * 0.22;
+          s.dash--;
+        }
+      }
+
+      function playerStep(p) {
+        if (gameOver) return;
+
+        const up = keys.has("w") || keys.has("arrowup");
+        const down = keys.has("s") || keys.has("arrowdown");
+        const left = keys.has("a") || keys.has("arrowleft");
+        const right = keys.has("d") || keys.has("arrowright");
+        const dash = keys.has("shift");
+
+        const ax = (right ? 1 : 0) - (left ? 1 : 0);
+        const ay = (down ? 1 : 0) - (up ? 1 : 0);
+
+        const accel = 0.18;
+        p.vx += ax * accel;
+        p.vy += ay * accel;
+
+        if (ax || ay) p.angle = Math.atan2(p.vy, p.vx);
+
+        if (dash && p.dash === 0) p.dash = 10;
+        if (p.dash > 0) {
+          const sp = Math.hypot(p.vx, p.vy);
+          const dir = sp > 0.2 ? Math.atan2(p.vy, p.vx) : 0;
+          p.vx += Math.cos(dir) * 0.35;
+          p.vy += Math.sin(dir) * 0.35;
+          p.dash--;
+        }
+      }
+
+      function drawArenaBg() {
+        ctx.fillStyle = "#06122e";
+        ctx.fillRect(0, 0, W(), H());
+
+        const cell = 18;
+        for (let y=0; y<H(); y+=cell) {
+          for (let x=0; x<W(); x+=cell) {
+            const odd = ((x/cell + y/cell) | 0) % 2;
+            ctx.fillStyle = odd ? "rgba(0,167,255,.10)" : "rgba(11,99,255,.08)";
+            ctx.fillRect(x, y, cell, cell);
+          }
+        }
+      }
+
+      function drawGameOverOverlay() {
+        ctx.fillStyle = "rgba(0,0,0,.45)";
+        ctx.fillRect(0, ((H()/2 - 28)|0), W(), 56);
+        ctx.fillStyle = "#f7fbff";
+        ctx.font = "16px monospace";
+        ctx.textAlign = "center";
+        ctx.fillText("GAME OVER", W()/2, ((H()/2 - 4)|0));
+        ctx.font = "12px monospace";
+        ctx.fillText("PRESSIONE R PARA REINICIAR", W()/2, ((H()/2 + 16)|0));
+      }
+
+      function step() {
+        // sempre desenha; nunca para o loop
+        drawArenaBg();
+
+        // partículas
+        for (let i=particles.length-1;i>=0;i--){
+          const pt = particles[i];
+          pt.x += pt.vx;
+          pt.y += pt.vy;
+          pt.vx *= 0.88;
+          pt.vy *= 0.88;
+          pt.life--;
+          if (pt.life <= 0) particles.splice(i, 1);
+        }
+        for (const pt of particles) {
+          ctx.fillStyle = pt.c;
+          ctx.fillRect((pt.x|0), (pt.y|0), pt.s*px/2, pt.s*px/2);
+        }
+
+        // se game over, só mostra overlay e continua rodando esperando R
+        if (gameOver) {
+          drawGameOverOverlay();
+          requestAnimationFrame(step);
+          return;
+        }
+
+        // update naves
+        for (const s of ships) {
+          if (!s.alive) continue;
+          if (s.inv > 0) s.inv--;
+
+          if (s.kind === "player") playerStep(s);
+          else aiStep(s);
+
+          s.vx *= 0.93;
+          s.vy *= 0.93;
+
+          const vmax = 7.5;
+          const sp = Math.hypot(s.vx, s.vy);
+          if (sp > vmax) { s.vx = (s.vx/sp)*vmax; s.vy = (s.vy/sp)*vmax; }
+
+          s.x += s.vx;
+          s.y += s.vy;
+
+          wrapOrBounce(s);
+        }
+
+        // colisões
+        for (let i=0;i<ships.length;i++){
+          for (let j=i+1;j<ships.length;j++){
+            collide(ships[i], ships[j]);
+          }
+        }
+
+        // desenha naves
+        for (const s of ships) {
+          if (!s.alive) continue;
+          const pal = s.kind === "player" ? palettes.player : (s.kind === "enemy1" ? palettes.enemy1 : palettes.enemy2);
+          if (s.inv > 0 && ((s.inv/4)|0)%2 === 0) continue;
+          drawShip(s.x, s.y, s.angle, pal);
+        }
+
+        requestAnimationFrame(step);
+      }
+
+      reset(false);
+      requestAnimationFrame(step);
+    }
+
+    renderGames();
+    initStars();
+    initIntroGame();
+  </script>
+</body>
+</html>
