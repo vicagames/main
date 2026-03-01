@@ -1,0 +1,1256 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Capivara Dash — Fase 1 (Regenerado)</title>
+  <style>
+    html, body { margin:0; padding:0; background:#0b1220; color:#e7eefc; font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; }
+    #wrap { display:flex; flex-direction:column; align-items:center; gap:10px; padding:12px; }
+    canvas { background: linear-gradient(#0f1a33, #0b1220); border:1px solid rgba(255,255,255,.15); border-radius:12px; width:min(980px, 96vw); height:auto; }
+    .panel { width:min(980px, 96vw); display:flex; justify-content:space-between; gap:12px; align-items:flex-start; flex-wrap:wrap; }
+    .box { flex:1; min-width:280px; background: rgba(255,255,255,.06); border:1px solid rgba(255,255,255,.12); border-radius:12px; padding:10px 12px; }
+    .box h3 { margin:0 0 6px; font-size:14px; font-weight:700; opacity:.95; }
+    .box p { margin:0; font-size:12.5px; line-height:1.35; opacity:.9; }
+    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; }
+  </style>
+</head>
+<body>
+<div id="wrap">
+  <div class="panel">
+    <div class="box">
+      <h3>Controles</h3>
+      <p>
+        <span class="mono">A/D</span> ou <span class="mono">←/→</span>: mover<br>
+        <span class="mono">W</span> / <span class="mono">↑</span> / <span class="mono">Espaço</span>: pular (pulo duplo)<br>
+        <span class="mono">Wall Jump</span>: encoste na parede + pulo (segure direção)<br>
+        <span class="mono">J</span> (ou <span class="mono">K</span>): soco<br>
+        <span class="mono">L</span>: hadouken (libera ao comer mais de 3 balinhas)<br>
+        <span class="mono">I</span>: Gomu Gomu no Piston (braço estica, especial curto alcance, também precisa &gt; 3 balinhas)<br>
+        <span class="mono">R</span>: reiniciar
+      </p>
+    </div>
+    <div class="box">
+      <h3>Objetivo</h3>
+      <p>
+        Colete balinhas, derrote as moscas (capangas) e enfrente o chefe: Rato do Esgoto.
+        A arena do chefe agora é maior e mais aberta.
+      </p>
+    </div>
+  </div>
+
+  <canvas id="c" width="980" height="520"></canvas>
+</div>
+
+<script>
+(() => {
+  // ---------------------------
+  // Helpers
+  // ---------------------------
+  const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+  const rectsOverlap = (a, b) =>
+    a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
+
+  // ---------------------------
+  // Canvas
+  // ---------------------------
+  const canvas = document.getElementById("c");
+  const ctx = canvas.getContext("2d");
+
+  const W = canvas.width;
+  const H = canvas.height;
+
+  // ---------------------------
+  // Input (estável)
+  // ---------------------------
+  const keys = new Map();
+  const pressedOnce = new Set();
+
+  window.addEventListener("keydown", (e) => {
+    const k = normalizeKey(e);
+    if (!keys.get(k)) pressedOnce.add(k);
+    keys.set(k, true);
+
+    if (["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Space"].includes(e.code)) e.preventDefault();
+  }, { passive:false });
+
+  window.addEventListener("keyup", (e) => {
+    const k = normalizeKey(e);
+    keys.set(k, false);
+  });
+
+  function normalizeKey(e) {
+    if (e.code === "Space") return "Space";
+    return e.key.length === 1 ? e.key.toLowerCase() : e.key;
+  }
+  function isDown(k) { return !!keys.get(k); }
+  function wasPressed(k) {
+    if (pressedOnce.has(k)) { pressedOnce.delete(k); return true; }
+    return false;
+  }
+
+  // ---------------------------
+  // World / Camera
+  // ---------------------------
+  const world = {
+    w: 4200, // maior por causa da arena do chefe
+    h: 900,
+    gravity: 2200,
+    floorY: 430,
+  };
+  const cam = { x: 0, y: 0 };
+
+  // ---------------------------
+  // Level geometry (solids)
+  // ---------------------------
+  const solids = [];
+  function addSolid(x, y, w, h) { solids.push({ x, y, w, h }); }
+
+  // chão
+  addSolid(0, world.floorY, world.w, 600);
+
+  // plataformas (sabor Sonic)
+  addSolid(180, 360, 180, 22);
+  addSolid(420, 315, 170, 22);
+  addSolid(700, 280, 170, 22);
+
+  addSolid(980, 380, 160, 22);
+  addSolid(1180, 330, 160, 22);
+
+  // paredes para wall jump
+  addSolid(1420, 260, 28, 170);
+  addSolid(1488, 230, 28, 200);
+
+  addSolid(1650, 345, 240, 22);
+  addSolid(1950, 310, 200, 22);
+
+  const pits = [
+    { x: 860,  w: 110 },
+    { x: 2140, w: 160 },
+    { x: 2720, w: 140 },
+  ];
+
+  addSolid(2280, 360, 180, 22);
+  addSolid(2500, 320, 170, 22);
+  addSolid(2900, 300, 200, 22);
+
+  // antes da arena
+  addSolid(3180, 360, 230, 22);
+  addSolid(3440, 340, 220, 22);
+
+  // arena do chefe (BEM maior e aberta)
+  const bossArena = { x: 3500, y: world.floorY - 240, w: 620, h: 240 };
+  // gate para prender durante a luta, mas sem bloquear o acesso antes
+  const arenaGate = { x: bossArena.x - 30, y: world.floorY - 160, w: 24, h: 160, closed: false };
+
+  // ---------------------------
+  // Entities
+  // ---------------------------
+  const player = {
+    x: 80, y: 120, w: 34, h: 44,
+    vx: 0, vy: 0,
+    facing: 1,
+    onGround: false,
+    onWallLeft: false,
+    onWallRight: false,
+    wallSlide: false,
+    jumpsLeft: 2,
+    hp: 6,
+    invuln: 0,
+    punchCD: 0,
+    hadoukenCD: 0,
+    pistonCD: 0,
+    candies: 0,
+    blinkUntil: 0,
+    dead: false,
+    win: false,
+  };
+
+  const candies = [];
+  function spawnCandy(x, y) { candies.push({ x, y, r: 8, taken: false }); }
+
+  [
+    [220, 330], [455, 285], [740, 250],
+    [1040, 350], [1210, 300],
+    [1700, 315], [1760, 315],
+    [1990, 280],
+    [2330, 330], [2535, 290],
+    [2910, 270], [3200, 330],
+    [3490, 310], [3600, 310],
+  ].forEach(([x,y]) => spawnCandy(x,y));
+
+  const projectiles = []; // hadouken / garbage
+  const effects = [];     // explosões, trail do piston etc.
+
+  // Flies
+  const flies = [];
+  function spawnFly(x, y) {
+    flies.push({
+      kind: "fly",
+      x, y, w: 28, h: 22,
+      vx: 120 * (Math.random() < 0.5 ? -1 : 1),
+      baseY: y,
+      t: Math.random() * 10,
+      hp: 2,
+      alive: true,
+      touchDmg: 1,
+      hitCD: 0,
+      explodeT: 0,
+    });
+  }
+
+  [
+    [1860, 230],
+    [2060, 210],
+    [2360, 200],
+    [2460, 240],
+    [2660, 210],
+    [2920, 205],
+  ].forEach(([x,y]) => spawnFly(x,y));
+
+  // Boss: Sewer Rat
+  const boss = {
+    kind: "rat",
+    x: bossArena.x + bossArena.w - 160,
+    y: world.floorY - 54,
+    w: 92, h: 54,
+    vx: 0, vy: 0,
+    hp: 34,
+    maxHp: 34,
+    alive: true,
+    active: false,
+    phase: 1,
+    aiT: 0,
+    attackCD: 0,
+    hurtT: 0,
+    touchDmg: 2,
+  };
+
+  // ---------------------------
+  // Respawn
+  // ---------------------------
+  const spawnPoint = { x: 80, y: 120 };
+
+  function resetAll() {
+    player.x = spawnPoint.x; player.y = spawnPoint.y;
+    player.vx = 0; player.vy = 0;
+    player.facing = 1;
+    player.onGround = false;
+    player.jumpsLeft = 2;
+    player.hp = 6;
+    player.invuln = 0;
+    player.punchCD = 0;
+    player.hadoukenCD = 0;
+    player.pistonCD = 0;
+    player.candies = 0;
+    player.dead = false;
+    player.win = false;
+
+    candies.forEach(c => c.taken = false);
+    flies.forEach(f => { f.alive = true; f.hp = 2; f.hitCD = 0; f.explodeT = 0; });
+
+    projectiles.length = 0;
+    effects.length = 0;
+
+    boss.x = bossArena.x + bossArena.w - 160;
+    boss.y = world.floorY - 54;
+    boss.vx = 0; boss.vy = 0;
+    boss.hp = boss.maxHp;
+    boss.alive = true;
+    boss.active = false;
+    boss.phase = 1;
+    boss.aiT = 0;
+    boss.attackCD = 0;
+    boss.hurtT = 0;
+
+    arenaGate.closed = false;
+  }
+
+  // ---------------------------
+  // Collisions
+  // ---------------------------
+  function isInPit(x) {
+    for (const p of pits) if (x >= p.x && x <= p.x + p.w) return true;
+    return false;
+  }
+  function groundAt(x) { return isInPit(x) ? null : world.floorY; }
+
+  function resolveCollisions(entity, dt) {
+    entity.onGround = false;
+    entity.onWallLeft = false;
+    entity.onWallRight = false;
+    entity.wallSlide = false;
+
+    entity.x += entity.vx * dt;
+
+    // gate é sólido quando fechado (bloqueia saída)
+    const gateSolid = arenaGate.closed ? [arenaGate] : [];
+    const allSolidsX = solids.concat(gateSolid);
+
+    for (const s of allSolidsX) {
+      if (rectsOverlap(entity, s)) {
+        if (entity.vx > 0) {
+          entity.x = s.x - entity.w;
+          entity.vx = 0;
+          if (entity === player) entity.onWallRight = true;
+        } else if (entity.vx < 0) {
+          entity.x = s.x + s.w;
+          entity.vx = 0;
+          if (entity === player) entity.onWallLeft = true;
+        }
+      }
+    }
+
+    entity.y += entity.vy * dt;
+
+    const allSolidsY = solids.concat(gateSolid);
+    for (const s of allSolidsY) {
+      if (rectsOverlap(entity, s)) {
+        if (entity.vy > 0) {
+          entity.y = s.y - entity.h;
+          entity.vy = 0;
+          entity.onGround = true;
+        } else if (entity.vy < 0) {
+          entity.y = s.y + s.h;
+          entity.vy = 0;
+        }
+      }
+    }
+
+    // chão principal com buracos
+    if (!entity.onGround) {
+      const g = groundAt(entity.x + entity.w * 0.5);
+      if (g != null) {
+        const bottom = entity.y + entity.h;
+        if (bottom >= g && bottom <= g + 40 && entity.vy >= 0) {
+          entity.y = g - entity.h;
+          entity.vy = 0;
+          entity.onGround = true;
+        }
+      }
+    }
+
+    // wall slide (jogador)
+    if (entity === player) {
+      const holdingLeft = isDown("a") || isDown("ArrowLeft");
+      const holdingRight = isDown("d") || isDown("ArrowRight");
+      const touchingWall = (player.onWallLeft && holdingLeft) || (player.onWallRight && holdingRight);
+      if (!player.onGround && touchingWall && player.vy > 0) {
+        player.wallSlide = true;
+        player.vy = Math.min(player.vy, 520);
+      }
+    }
+  }
+
+  // ---------------------------
+  // Combat
+  // ---------------------------
+  function spawnExplosion(x, y, scale=1) {
+    effects.push({ kind:"boom", x, y, t:0, dur:0.28, scale });
+  }
+
+  function doPunch() {
+    if (player.punchCD > 0 || player.dead || player.win) return;
+    player.punchCD = 0.18;
+
+    const range = 26;
+    const hit = {
+      x: player.facing === 1 ? player.x + player.w : player.x - range,
+      y: player.y + 10,
+      w: range,
+      h: player.h - 18
+    };
+
+    for (const f of flies) {
+      if (!f.alive) continue;
+      if (rectsOverlap(hit, f) && f.hitCD <= 0) {
+        f.hp -= 1;
+        f.hitCD = 0.12;
+        f.vx += player.facing * 140;
+        if (f.hp <= 0) {
+          f.alive = false;
+          spawnExplosion(f.x + f.w/2, f.y + f.h/2, 0.9);
+        }
+      }
+    }
+
+    if (boss.alive && boss.active) {
+      if (rectsOverlap(hit, boss)) {
+        boss.hp -= 1;
+        boss.hurtT = 0.12;
+        boss.vx += player.facing * 160;
+        if (boss.hp <= 0) boss.alive = false;
+      }
+    }
+  }
+
+  function doHadouken() {
+    if (player.hadoukenCD > 0 || player.dead || player.win) return;
+    if (player.candies <= 3) return;
+
+    player.hadoukenCD = 0.35;
+
+    const speed = 860;
+    const px = player.facing === 1 ? (player.x + player.w + 2) : (player.x - 18);
+    const py = player.y + 18;
+
+    projectiles.push({
+      kind: "hadouken",
+      owner: "player",
+      x: px, y: py, w: 16, h: 12,
+      vx: speed * player.facing, vy: 0,
+      ttl: 1.1
+    });
+  }
+
+  function doPiston() {
+    // “Gomu Gomu no Piston”: ataque esticado, sem projétil, alcance maior que soco.
+    if (player.pistonCD > 0 || player.dead || player.win) return;
+    if (player.candies <= 3) return;
+
+    player.pistonCD = 0.7;
+
+    const reach = 140;
+    const thickness = 18;
+    const hit = {
+      x: player.facing === 1 ? player.x + player.w : player.x - reach,
+      y: player.y + 14,
+      w: reach,
+      h: thickness
+    };
+
+    // efeito visual do braço
+    effects.push({
+      kind: "piston",
+      x0: player.facing === 1 ? (player.x + player.w) : (player.x),
+      y0: player.y + 22,
+      facing: player.facing,
+      reach,
+      t: 0,
+      dur: 0.16
+    });
+
+    // dano maior
+    for (const f of flies) {
+      if (!f.alive) continue;
+      if (rectsOverlap(hit, f)) {
+        f.hp -= 3;
+        f.hitCD = 0.18;
+        f.vx += player.facing * 360;
+        if (f.hp <= 0) {
+          f.alive = false;
+          spawnExplosion(f.x + f.w/2, f.y + f.h/2, 1.1);
+        }
+      }
+    }
+
+    if (boss.alive && boss.active) {
+      if (rectsOverlap(hit, boss)) {
+        boss.hp -= 4;
+        boss.hurtT = 0.18;
+        boss.vx += player.facing * 380;
+        if (boss.hp <= 0) boss.alive = false;
+      }
+    }
+  }
+
+  function bossShoot() {
+    const dir = (player.x + player.w*0.5) < (boss.x + boss.w*0.5) ? -1 : 1;
+    const px = boss.x + boss.w * (dir === 1 ? 1 : 0) + dir * 6;
+    const py = boss.y + 16;
+
+    projectiles.push({
+      kind: "garbage",
+      owner: "boss",
+      x: px, y: py, w: 14, h: 14,
+      vx: dir * 520, vy: -120,
+      ttl: 2.0
+    });
+  }
+
+  function applyDamageToPlayer(dmg, knockX, knockY) {
+    if (player.invuln > 0 || player.dead || player.win) return;
+    player.hp -= dmg;
+    player.invuln = 0.6;
+    player.vx = knockX;
+    player.vy = knockY;
+    if (player.hp <= 0) player.dead = true;
+  }
+
+  // ---------------------------
+  // Loop
+  // ---------------------------
+  let last = performance.now();
+  function tick(now) {
+    const dt = clamp((now - last) / 1000, 0, 1/30);
+    last = now;
+
+    if (wasPressed("r")) resetAll();
+
+    if (!player.dead && !player.win) {
+      updatePlayer(dt);
+      updateCandies();
+      updateFlies(dt);
+      updateBoss(dt);
+      updateProjectiles(dt);
+      updateEffects(dt);
+      handleContacts();
+      checkWinLose();
+    } else {
+      updateCamera(dt);
+      updateEffects(dt);
+    }
+
+    draw();
+    requestAnimationFrame(tick);
+  }
+
+  function updatePlayer(dt) {
+    player.invuln = Math.max(0, player.invuln - dt);
+    player.punchCD = Math.max(0, player.punchCD - dt);
+    player.hadoukenCD = Math.max(0, player.hadoukenCD - dt);
+    player.pistonCD = Math.max(0, player.pistonCD - dt);
+
+    // blink aleatório
+    if (player.blinkUntil > 0) player.blinkUntil = Math.max(0, player.blinkUntil - dt);
+    else if (Math.random() < 0.008) player.blinkUntil = 0.11;
+
+    const left = isDown("a") || isDown("ArrowLeft");
+    const right = isDown("d") || isDown("ArrowRight");
+    const wantJump = wasPressed("w") || wasPressed("ArrowUp") || wasPressed("Space");
+    const wantPunch = wasPressed("j") || wasPressed("k");
+    const wantHadouken = wasPressed("l");
+    const wantPiston = wasPressed("i");
+
+    const accel = 2800;
+    const maxSpeed = 560;
+    const friction = 2200;
+
+    if (left) { player.vx -= accel * dt; player.facing = -1; }
+    if (right) { player.vx += accel * dt; player.facing = 1; }
+
+    if (!left && !right) {
+      if (player.vx > 0) player.vx = Math.max(0, player.vx - friction * dt);
+      if (player.vx < 0) player.vx = Math.min(0, player.vx + friction * dt);
+    }
+    player.vx = clamp(player.vx, -maxSpeed, maxSpeed);
+
+    player.vy += world.gravity * dt;
+    resolveCollisions(player, dt);
+
+    if (player.onGround) player.jumpsLeft = 2;
+
+    if (wantJump) {
+      const jumpV = -780;
+      if (player.onGround) {
+        player.vy = jumpV;
+        player.onGround = false;
+        player.jumpsLeft = 1;
+      } else if (player.wallSlide || player.onWallLeft || player.onWallRight) {
+        const push = 520;
+        if (player.onWallLeft) { player.vy = jumpV * 0.96; player.vx = push; }
+        else if (player.onWallRight) { player.vy = jumpV * 0.96; player.vx = -push; }
+        else player.vy = jumpV * 0.94;
+        player.jumpsLeft = 1;
+      } else if (player.jumpsLeft > 0) {
+        player.vy = jumpV * 0.92;
+        player.jumpsLeft -= 1;
+      }
+    }
+
+    if (wantPunch) doPunch();
+    if (wantHadouken) doHadouken();
+    if (wantPiston) doPiston();
+
+    if (player.y > world.floorY + 420) player.dead = true;
+
+    updateCamera(dt);
+  }
+
+  function updateCamera(dt) {
+    const targetX = clamp(player.x + player.w * 0.5 - W * 0.45, 0, world.w - W);
+    cam.x += (targetX - cam.x) * (1 - Math.pow(0.001, dt));
+    cam.y = 0;
+  }
+
+  function updateCandies() {
+    for (const c of candies) {
+      if (c.taken) continue;
+      const hit = { x: c.x - c.r, y: c.y - c.r, w: c.r*2, h: c.r*2 };
+      if (rectsOverlap(player, hit)) {
+        c.taken = true;
+        player.candies += 1;
+        // pequeno brilho
+        effects.push({ kind:"spark", x:c.x, y:c.y, t:0, dur:0.22 });
+      }
+    }
+  }
+
+  function updateFlies(dt) {
+    for (const f of flies) {
+      if (!f.alive) continue;
+      f.hitCD = Math.max(0, f.hitCD - dt);
+
+      f.t += dt * 5;
+      f.y = f.baseY + Math.sin(f.t) * 18;
+
+      const dist = (player.x - f.x);
+      const chase = Math.abs(dist) < 260;
+      if (chase) f.vx += clamp(dist, -1, 1) * 220 * dt;
+      else {
+        if (f.x < 1720) f.vx += 80 * dt;
+        if (f.x > 3050) f.vx -= 80 * dt;
+      }
+
+      f.vx = clamp(f.vx, -240, 240);
+      f.x += f.vx * dt;
+
+      f.x = clamp(f.x, 1600, 3150);
+    }
+  }
+
+  function updateBoss(dt) {
+    if (!boss.alive) { boss.active = false; arenaGate.closed = false; return; }
+
+    const inArenaTrigger = player.x > (bossArena.x - 40);
+    if (inArenaTrigger) { boss.active = true; arenaGate.closed = true; }
+
+    if (!boss.active) return;
+
+    boss.aiT += dt;
+    boss.hurtT = Math.max(0, boss.hurtT - dt);
+    boss.attackCD = Math.max(0, boss.attackCD - dt);
+
+    const px = player.x + player.w*0.5;
+    const bx = boss.x + boss.w*0.5;
+    const dir = px < bx ? -1 : 1;
+
+    boss.phase = boss.hp <= boss.maxHp * 0.45 ? 2 : 1;
+
+    const baseSpeed = boss.phase === 2 ? 220 : 175;
+    boss.vx += dir * baseSpeed * dt;
+
+    const leftBound = bossArena.x + 20;
+    const rightBound = bossArena.x + bossArena.w - 20 - boss.w;
+
+    boss.x = clamp(boss.x, leftBound, rightBound);
+    boss.vx = clamp(boss.vx, -280, 280);
+
+    if (boss.attackCD <= 0) {
+      const choice = boss.phase === 2 ? (Math.random() < 0.6 ? "shoot" : "charge") : (Math.random() < 0.45 ? "shoot" : "charge");
+      if (choice === "shoot") {
+        bossShoot();
+        boss.attackCD = boss.phase === 2 ? 0.72 : 1.0;
+      } else {
+        boss.vx = dir * (boss.phase === 2 ? 560 : 460);
+        boss.attackCD = boss.phase === 2 ? 0.92 : 1.18;
+      }
+    }
+
+    boss.vy += world.gravity * dt;
+    resolveCollisions(boss, dt);
+    if (boss.y > world.floorY - boss.h) boss.y = world.floorY - boss.h;
+  }
+
+  function updateProjectiles(dt) {
+    for (const p of projectiles) {
+      p.ttl -= dt;
+      p.x += p.vx * dt;
+      p.y += p.vy * dt;
+      p.vy += (p.kind === "garbage" ? 1400 : 0) * dt;
+    }
+
+    for (const p of projectiles) {
+      if (p.ttl <= 0) continue;
+
+      if (p.kind === "hadouken") {
+        // não atravessa paredes/gate
+        const gateSolid = arenaGate.closed ? [arenaGate] : [];
+        for (const s of solids.concat(gateSolid)) {
+          if (rectsOverlap(p, s)) { p.ttl = 0; break; }
+        }
+      }
+
+      if (p.ttl <= 0) continue;
+
+      if (p.owner === "player") {
+        for (const f of flies) {
+          if (!f.alive) continue;
+          if (rectsOverlap(p, f)) {
+            f.hp -= 2;
+            f.hitCD = 0.10;
+            f.vx += Math.sign(p.vx) * 260;
+            p.ttl = 0;
+            if (f.hp <= 0) {
+              f.alive = false;
+              spawnExplosion(f.x + f.w/2, f.y + f.h/2, 1.0);
+            }
+            break;
+          }
+        }
+        if (boss.alive && boss.active && p.ttl > 0 && rectsOverlap(p, boss)) {
+          boss.hp -= 2;
+          boss.hurtT = 0.16;
+          boss.vx += Math.sign(p.vx) * 260;
+          p.ttl = 0;
+          if (boss.hp <= 0) boss.alive = false;
+        }
+      } else {
+        if (rectsOverlap(p, player)) {
+          applyDamageToPlayer(1, Math.sign(p.vx) * 420, -420);
+          p.ttl = 0;
+        }
+      }
+    }
+
+    for (let i = projectiles.length - 1; i >= 0; i--) {
+      if (projectiles[i].ttl <= 0) projectiles.splice(i, 1);
+    }
+  }
+
+  function updateEffects(dt) {
+    for (const e of effects) e.t += dt;
+    for (let i = effects.length - 1; i >= 0; i--) {
+      if (effects[i].t >= effects[i].dur) effects.splice(i, 1);
+    }
+  }
+
+  function handleContacts() {
+    for (const f of flies) {
+      if (!f.alive) continue;
+      if (rectsOverlap(player, f)) {
+        const knockX = (player.x < f.x) ? -380 : 380;
+        applyDamageToPlayer(f.touchDmg, knockX, -420);
+      }
+    }
+    if (boss.alive && boss.active && rectsOverlap(player, boss)) {
+      const knockX = (player.x < boss.x) ? -520 : 520;
+      applyDamageToPlayer(boss.touchDmg, knockX, -520);
+    }
+  }
+
+  function checkWinLose() {
+    if (player.dead) return;
+    if (boss.active && !boss.alive) {
+      player.win = true;
+      arenaGate.closed = false;
+      // explosão final
+      spawnExplosion(boss.x + boss.w/2, boss.y + boss.h/2, 1.8);
+    }
+  }
+
+  // ---------------------------
+  // Draw
+  // ---------------------------
+  function draw() {
+    ctx.clearRect(0, 0, W, H);
+    drawBackground();
+
+    ctx.save();
+    ctx.translate(-cam.x, -cam.y);
+
+    drawPits();
+    drawSolids();
+    drawBossArenaHint();
+    drawGate();
+
+    drawCandies();
+    drawFlies();
+    drawBoss();
+    drawProjectiles();
+    drawEffects();
+    drawPlayer();
+    drawSigns();
+
+    ctx.restore();
+
+    drawHUD();
+    drawOverlayMessages();
+  }
+
+  function drawBackground() {
+    ctx.save();
+    for (let i = 0; i < 60; i++) {
+      const sx = (i * 173) % W;
+      const sy = (i * 97) % H;
+      ctx.globalAlpha = 0.12;
+      ctx.fillStyle = "#cfe3ff";
+      ctx.fillRect((sx + cam.x * 0.08) % W, (sy + cam.x * 0.02) % H, 2, 2);
+    }
+    ctx.restore();
+
+    ctx.save();
+    ctx.globalAlpha = 0.18;
+    ctx.fillStyle = "#b7c8ff";
+    ctx.beginPath();
+    ctx.moveTo(0, 360);
+    for (let x = 0; x <= W; x += 80) {
+      const y = 360 - 40 * Math.sin((x + cam.x * 0.15) * 0.01) - 18 * Math.sin((x + cam.x * 0.07) * 0.02);
+      ctx.lineTo(x, y);
+    }
+    ctx.lineTo(W, H);
+    ctx.lineTo(0, H);
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
+  }
+
+  function drawPits() {
+    for (const p of pits) {
+      ctx.save();
+      ctx.globalAlpha = 0.9;
+      ctx.fillStyle = "#070b15";
+      ctx.fillRect(p.x, world.floorY, p.w, 600);
+      ctx.globalAlpha = 0.25;
+      ctx.fillStyle = "#bcd2ff";
+      ctx.fillRect(p.x, world.floorY, p.w, 5);
+      ctx.restore();
+    }
+  }
+
+  function drawSolids() {
+    ctx.save();
+    ctx.fillStyle = "#1c2a4e";
+    ctx.fillRect(0, world.floorY, world.w, 600);
+    ctx.fillStyle = "rgba(255,255,255,0.06)";
+    for (let x = 0; x < world.w; x += 46) ctx.fillRect(x, world.floorY + ((x/46)%2)*10, 22, 4);
+    ctx.restore();
+
+    for (const s of solids) {
+      if (s.y >= world.floorY) continue;
+      ctx.save();
+      ctx.fillStyle = "#253a6f";
+      ctx.fillRect(s.x, s.y, s.w, s.h);
+      ctx.globalAlpha = 0.22;
+      ctx.fillStyle = "#d7e6ff";
+      ctx.fillRect(s.x, s.y, s.w, 4);
+      ctx.restore();
+    }
+  }
+
+  function drawBossArenaHint() {
+    // marca no chão a arena (visual)
+    ctx.save();
+    ctx.globalAlpha = 0.10;
+    ctx.fillStyle = "#ffffff";
+    ctx.fillRect(bossArena.x, world.floorY, bossArena.w, 6);
+    ctx.restore();
+  }
+
+  function drawGate() {
+    if (!arenaGate.closed) return;
+    ctx.save();
+    ctx.fillStyle = "#2b3d6b";
+    ctx.fillRect(arenaGate.x, arenaGate.y, arenaGate.w, arenaGate.h);
+    ctx.globalAlpha = 0.25;
+    ctx.fillStyle = "#e2eeff";
+    for (let y = arenaGate.y + 8; y < arenaGate.y + arenaGate.h; y += 14) ctx.fillRect(arenaGate.x + 3, y, arenaGate.w - 6, 2);
+    ctx.restore();
+  }
+
+  function drawCandies() {
+    for (const c of candies) {
+      if (c.taken) continue;
+      ctx.save();
+      ctx.translate(c.x, c.y);
+      const t = performance.now() * 0.004;
+      const bob = Math.sin(t + c.x * 0.01) * 3;
+
+      ctx.globalAlpha = 0.95;
+      ctx.fillStyle = "#ffd28a";
+      ctx.beginPath();
+      ctx.arc(0, bob, c.r, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.globalAlpha = 0.35;
+      ctx.fillStyle = "#ffffff";
+      ctx.beginPath();
+      ctx.arc(-2, bob - 3, 3, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.globalAlpha = 0.55;
+      ctx.strokeStyle = "#ffe9c5";
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(-c.r - 3, bob);
+      ctx.lineTo(-c.r + 1, bob);
+      ctx.moveTo(c.r - 1, bob);
+      ctx.lineTo(c.r + 3, bob);
+      ctx.stroke();
+      ctx.restore();
+    }
+  }
+
+  function drawFlies() {
+    for (const f of flies) {
+      if (!f.alive) continue;
+      ctx.save();
+      ctx.translate(f.x + f.w/2, f.y + f.h/2);
+
+      ctx.globalAlpha = 1;
+      ctx.fillStyle = "#243041";
+      ctx.beginPath();
+      ctx.ellipse(0, 2, 10, 7, 0, 0, Math.PI * 2);
+      ctx.fill();
+
+      const wing = Math.sin(performance.now() * 0.02 + f.x * 0.01) * 1.0;
+      ctx.globalAlpha = 0.35;
+      ctx.fillStyle = "#d9f1ff";
+      ctx.beginPath();
+      ctx.ellipse(-8, -6, 9, 5 + wing, -0.35, 0, Math.PI * 2);
+      ctx.ellipse(8, -6, 9, 5 - wing, 0.35, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.globalAlpha = 0.9;
+      ctx.fillStyle = "#e7eefc";
+      ctx.beginPath();
+      ctx.arc(-4, 0, 2.2, 0, Math.PI * 2);
+      ctx.arc(4, 0, 2.2, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.restore();
+    }
+  }
+
+  function drawBoss() {
+    if (!boss.active && boss.alive) {
+      ctx.save();
+      ctx.globalAlpha = 0.18;
+      ctx.fillStyle = "#cfe3ff";
+      ctx.fillRect(boss.x + 10, boss.y + 18, boss.w - 20, boss.h - 18);
+      ctx.restore();
+      return;
+    }
+    if (!boss.alive) return;
+
+    ctx.save();
+    ctx.translate(boss.x, boss.y);
+
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = boss.hurtT > 0 ? "#3e4e72" : "#2c3b56";
+    roundRect(0, 8, boss.w, boss.h - 8, 10, true);
+
+    ctx.fillStyle = boss.hurtT > 0 ? "#44557c" : "#314364";
+    roundRect(8, 0, boss.w - 16, 28, 12, true);
+
+    ctx.fillStyle = "#ffd28a";
+    roundRect(boss.w - 18, 14, 12, 8, 4, true);
+
+    ctx.fillStyle = "#e7eefc";
+    ctx.fillRect(boss.w - 28, 26, 5, 8);
+    ctx.fillRect(boss.w - 20, 26, 5, 8);
+
+    ctx.fillStyle = "#e7eefc";
+    ctx.beginPath();
+    ctx.arc(boss.w - 34, 14, 3.2, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.globalAlpha = 0.7;
+    ctx.strokeStyle = "#3b4e74";
+    ctx.lineWidth = 5;
+    ctx.beginPath();
+    ctx.moveTo(6, boss.h - 12);
+    ctx.quadraticCurveTo(-18, boss.h - 18, -22, boss.h - 34);
+    ctx.stroke();
+
+    ctx.restore();
+  }
+
+  function drawProjectiles() {
+    for (const p of projectiles) {
+      ctx.save();
+      ctx.translate(p.x, p.y);
+
+      if (p.kind === "hadouken") {
+        ctx.globalAlpha = 0.95;
+        ctx.fillStyle = "#a9d7ff";
+        roundRect(0, 0, p.w, p.h, 6, true);
+
+        ctx.globalAlpha = 0.35;
+        ctx.fillStyle = "#ffffff";
+        roundRect(3, 2, p.w - 6, p.h - 5, 6, true);
+      } else {
+        ctx.globalAlpha = 0.9;
+        ctx.fillStyle = "#ffd28a";
+        ctx.beginPath();
+        ctx.arc(p.w/2, p.h/2, 7, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.globalAlpha = 0.22;
+        ctx.fillStyle = "#ffffff";
+        ctx.beginPath();
+        ctx.arc(5, 4, 3, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.restore();
+    }
+  }
+
+  function drawEffects() {
+    for (const e of effects) {
+      if (e.kind === "boom") {
+        const p = clamp(e.t / e.dur, 0, 1);
+        const r1 = (10 + 34 * p) * e.scale;
+        const r2 = (6 + 18 * p) * e.scale;
+
+        ctx.save();
+        ctx.globalAlpha = (1 - p) * 0.9;
+        ctx.fillStyle = "#ffd28a";
+        ctx.beginPath();
+        ctx.arc(e.x, e.y, r1, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.globalAlpha = (1 - p) * 0.65;
+        ctx.fillStyle = "#a9d7ff";
+        ctx.beginPath();
+        ctx.arc(e.x, e.y, r2, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+      } else if (e.kind === "spark") {
+        const p = clamp(e.t / e.dur, 0, 1);
+        ctx.save();
+        ctx.globalAlpha = (1 - p) * 0.9;
+        ctx.strokeStyle = "#ffffff";
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(e.x - 10, e.y);
+        ctx.lineTo(e.x + 10, e.y);
+        ctx.moveTo(e.x, e.y - 10);
+        ctx.lineTo(e.x, e.y + 10);
+        ctx.stroke();
+        ctx.restore();
+      } else if (e.kind === "piston") {
+        const p = clamp(e.t / e.dur, 0, 1);
+        const ease = 1 - Math.pow(1 - p, 3);
+        const len = e.reach * (p < 0.6 ? ease : (1 - (p-0.6)/0.4));
+        const thickness = 10;
+
+        ctx.save();
+        ctx.globalAlpha = 0.75 * (1 - p);
+        ctx.fillStyle = "#d7e6ff";
+
+        const x = e.facing === 1 ? e.x0 : (e.x0 - len);
+        const y = e.y0 - thickness/2;
+        roundRect(x, y, Math.max(8, len), thickness, 6, true);
+
+        ctx.globalAlpha = 0.35 * (1 - p);
+        ctx.fillStyle = "#ffffff";
+        roundRect(x + 3, y + 2, Math.max(4, len - 6), thickness - 4, 6, true);
+        ctx.restore();
+      }
+    }
+  }
+
+  function drawPlayer() {
+    ctx.save();
+    ctx.translate(player.x, player.y);
+
+    const walk = Math.abs(player.vx) > 40 && player.onGround;
+    const step = walk ? Math.sin(performance.now() * 0.02) : 0;
+
+    ctx.globalAlpha = 0.18;
+    ctx.fillStyle = "#000000";
+    ctx.beginPath();
+    ctx.ellipse(player.w/2, player.h + 6, 16, 6, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.globalAlpha = player.invuln > 0 ? (0.65 + 0.35 * Math.sin(performance.now() * 0.05)) : 1;
+
+    ctx.fillStyle = "#8b6a4a";
+    roundRect(6, 12, player.w - 12, player.h - 10, 12, true);
+
+    ctx.globalAlpha *= 0.9;
+    ctx.fillStyle = "#a8845f";
+    roundRect(10, 22, player.w - 20, player.h - 22, 10, true);
+
+    ctx.globalAlpha = player.invuln > 0 ? (0.65 + 0.35 * Math.sin(performance.now() * 0.05)) : 1;
+    ctx.fillStyle = "#8b6a4a";
+    roundRect(2, 6, player.w - 4, 18, 12, true);
+
+    ctx.fillStyle = "#a8845f";
+    roundRect(player.facing === 1 ? (player.w - 16) : 2, 12, 14, 10, 8, true);
+
+    const blinking = player.blinkUntil > 0;
+    ctx.fillStyle = "#e7eefc";
+    if (!blinking) {
+      ctx.beginPath();
+      ctx.arc(player.facing === 1 ? (player.w - 20) : 20, 12, 2.4, 0, Math.PI * 2);
+      ctx.fill();
+    } else {
+      ctx.globalAlpha = 0.8;
+      ctx.fillRect(player.facing === 1 ? (player.w - 22) : 18, 12, 6, 2);
+    }
+
+    ctx.globalAlpha = 0.95;
+    ctx.fillStyle = "#6f543c";
+    const legY = player.h - 2;
+    const legSwing = step * 4;
+
+    roundRect(10, legY - 8, 8, 10, 4, true);
+    roundRect(player.w - 18, legY - 8, 8, 10, 4, true);
+    roundRect(6, legY - 10 - legSwing, 8, 12, 4, true);
+    roundRect(player.w - 14, legY - 10 + legSwing, 8, 12, 4, true);
+
+    // efeito de soco
+    if (player.punchCD > 0.12) {
+      ctx.globalAlpha = 0.35;
+      ctx.fillStyle = "#d7e6ff";
+      const fx = player.facing === 1 ? player.w : -18;
+      roundRect(fx, 18, 18, 10, 6, true);
+    }
+
+    ctx.restore();
+  }
+
+  function drawSigns() {
+    ctx.save();
+    // MOSCAS
+    ctx.globalAlpha = 0.65;
+    ctx.fillStyle = "#d7e6ff";
+    ctx.fillRect(1560, world.floorY - 78, 10, 78);
+    ctx.fillRect(1560, world.floorY - 78, 80, 10);
+    ctx.globalAlpha = 0.9;
+    ctx.fillStyle = "#0b1220";
+    ctx.fillRect(1572, world.floorY - 70, 64, 18);
+    ctx.globalAlpha = 0.9;
+    ctx.fillStyle = "#e7eefc";
+    ctx.font = "12px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace";
+    ctx.fillText("MOSCAS", 1578, world.floorY - 57);
+
+    // CHEFE
+    ctx.globalAlpha = 0.65;
+    ctx.fillStyle = "#d7e6ff";
+    ctx.fillRect(bossArena.x - 120, world.floorY - 78, 10, 78);
+    ctx.fillRect(bossArena.x - 120, world.floorY - 78, 95, 10);
+    ctx.globalAlpha = 0.9;
+    ctx.fillStyle = "#0b1220";
+    ctx.fillRect(bossArena.x - 108, world.floorY - 70, 80, 18);
+    ctx.globalAlpha = 0.9;
+    ctx.fillStyle = "#e7eefc";
+    ctx.fillText("CHEFE", bossArena.x - 96, world.floorY - 57);
+    ctx.restore();
+  }
+
+  function drawHUD() {
+    ctx.save();
+    ctx.globalAlpha = 0.95;
+    ctx.fillStyle = "rgba(255,255,255,0.06)";
+    roundRect(12, 12, 956, 58, 14, true);
+
+    ctx.fillStyle = "#e7eefc";
+    ctx.font = "13px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace";
+    ctx.fillText("HP", 24, 36);
+
+    for (let i = 0; i < 6; i++) {
+      ctx.globalAlpha = i < player.hp ? 0.95 : 0.25;
+      ctx.fillStyle = "#ffd28a";
+      roundRect(56 + i * 18, 24, 14, 16, 4, true);
+    }
+
+    ctx.globalAlpha = 0.95;
+    ctx.fillStyle = "#e7eefc";
+    ctx.fillText("BALINHAS", 180, 36);
+    ctx.fillStyle = "#ffd28a";
+    ctx.fillText(String(player.candies), 270, 36);
+
+    const ok = player.candies > 3;
+    ctx.globalAlpha = 0.95;
+    ctx.fillStyle = "#e7eefc";
+    ctx.fillText("L=HADOUKEN", 330, 36);
+    ctx.globalAlpha = ok ? 0.95 : 0.35;
+    ctx.fillStyle = ok ? "#a9d7ff" : "#e7eefc";
+    ctx.fillText(ok ? "ON" : "OFF", 445, 36);
+
+    ctx.globalAlpha = 0.95;
+    ctx.fillStyle = "#e7eefc";
+    ctx.fillText("I=PISTON", 520, 36);
+    ctx.globalAlpha = ok ? 0.95 : 0.35;
+    ctx.fillStyle = ok ? "#d7e6ff" : "#e7eefc";
+    ctx.fillText(ok ? "ON" : "OFF", 605, 36);
+
+    if (boss.active && boss.alive) {
+      ctx.globalAlpha = 0.95;
+      ctx.fillStyle = "#e7eefc";
+      ctx.fillText("RATO DO ESGOTO", 690, 36);
+
+      const barX = 820, barY = 24, barW = 140, barH = 16;
+      ctx.globalAlpha = 0.25;
+      ctx.fillStyle = "#e7eefc";
+      roundRect(barX, barY, barW, barH, 8, true);
+
+      const pct = clamp(boss.hp / boss.maxHp, 0, 1);
+      ctx.globalAlpha = 0.85;
+      ctx.fillStyle = "#ffd28a";
+      roundRect(barX, barY, barW * pct, barH, 8, true);
+    }
+
+    ctx.restore();
+  }
+
+  function drawOverlayMessages() {
+    if (player.win) {
+      overlayBox("FASE COMPLETA", "Você derrotou o Rato do Esgoto. Pressione R para jogar de novo.");
+      return;
+    }
+    if (player.dead) {
+      overlayBox("VOCÊ CAIU / PERDEU", "Pressione R para reaparecer no início da fase.");
+      return;
+    }
+    if (player.candies === 3 && player.x > 900 && player.x < 2400) overlayMini("Falta 1 balinha para liberar os especiais (L e I).");
+    if (player.candies > 3 && player.x > 1100 && player.x < 2600) overlayMini("Especiais liberados: L (Hadouken) e I (Piston).");
+    if (boss.active && boss.alive && player.x < bossArena.x + 10) overlayMini("A arena fechou. Derrote o chefe para abrir.");
+  }
+
+  function overlayBox(title, subtitle) {
+    ctx.save();
+    ctx.globalAlpha = 0.95;
+    ctx.fillStyle = "rgba(0,0,0,0.55)";
+    ctx.fillRect(0, 0, W, H);
+
+    ctx.globalAlpha = 0.95;
+    ctx.fillStyle = "rgba(255,255,255,0.08)";
+    roundRect(W/2 - 320, H/2 - 90, 640, 180, 18, true);
+
+    ctx.fillStyle = "#e7eefc";
+    ctx.font = "700 22px system-ui, -apple-system, Segoe UI, Roboto, Arial";
+    ctx.fillText(title, W/2 - ctx.measureText(title).width/2, H/2 - 18);
+
+    ctx.globalAlpha = 0.9;
+    ctx.font = "14px system-ui, -apple-system, Segoe UI, Roboto, Arial";
+    ctx.fillText(subtitle, W/2 - ctx.measureText(subtitle).width/2, H/2 + 16);
+    ctx.restore();
+  }
+
+  function overlayMini(msg) {
+    ctx.save();
+    ctx.globalAlpha = 0.88;
+    ctx.font = "13px system-ui, -apple-system, Segoe UI, Roboto, Arial";
+    const w = Math.min(700, 22 + ctx.measureText(msg).width);
+    ctx.fillStyle = "rgba(255,255,255,0.08)";
+    roundRect(12, 78, w, 32, 12, true);
+    ctx.fillStyle = "#e7eefc";
+    ctx.fillText(msg, 22, 100);
+    ctx.restore();
+  }
+
+  function roundRect(x, y, w, h, r, fill) {
+    const rr = Math.min(r, w/2, h/2);
+    ctx.beginPath();
+    ctx.moveTo(x + rr, y);
+    ctx.arcTo(x + w, y, x + w, y + h, rr);
+    ctx.arcTo(x + w, y + h, x, y + h, rr);
+    ctx.arcTo(x, y + h, x, y, rr);
+    ctx.arcTo(x, y, x + w, y, rr);
+    ctx.closePath();
+    if (fill) ctx.fill();
+  }
+
+  // ---------------------------
+  // Start
+  // ---------------------------
+  resetAll();
+  requestAnimationFrame(tick);
+})();
+</script>
+</body>
+</html>
