@@ -1,0 +1,1376 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1"/>
+<title>Viça Kart</title>
+<style>
+  html,body{height:100%;margin:0;background:#071023;color:#eaf0ff;font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial}
+  #game{position:fixed;inset:0;z-index:0;display:block;width:100%;height:100%}
+  #hud{
+    position:fixed;left:12px;top:12px;z-index:5;
+    background:rgba(0,0,0,.45);border:1px solid rgba(255,255,255,.18);
+    border-radius:10px;padding:10px 12px;font-size:12px;line-height:1.35
+  }
+  #hud b{color:#fff}
+  #menu{
+    position:fixed;inset:0;z-index:10;display:flex;align-items:center;justify-content:center;
+    background:rgba(0,0,0,.55);pointer-events:auto
+  }
+  .card{
+    width:min(1040px,calc(100vw - 24px));
+    background:rgba(10,18,40,.92);border:1px solid rgba(255,255,255,.18);
+    border-radius:14px;box-shadow:0 18px 60px rgba(0,0,0,.55);overflow:hidden
+  }
+  .head{padding:14px 16px;border-bottom:1px solid rgba(255,255,255,.14);display:flex;gap:12px;justify-content:space-between;align-items:flex-end}
+  .title{font-weight:900;letter-spacing:1px;font-size:18px}
+  .sub{opacity:.85;font-size:12px;max-width:560px}
+  .body{display:grid;grid-template-columns:1fr 1fr;gap:12px;padding:14px 16px}
+  @media (max-width:920px){.body{grid-template-columns:1fr}}
+  .box{border:1px solid rgba(255,255,255,.14);border-radius:12px;padding:12px;background:rgba(255,255,255,.04)}
+  .box h3{margin:0 0 10px;font-size:13px;opacity:.9;letter-spacing:.4px}
+  .grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+  .btn{
+    cursor:pointer;user-select:none;
+    border:1px solid rgba(255,255,255,.18);background:rgba(0,0,0,.25);
+    border-radius:12px;padding:10px 10px;display:flex;gap:10px;align-items:center
+  }
+  .btn:hover{border-color:rgba(0,209,255,.65)}
+  .btn.sel{border-color:rgba(255,61,209,.75);background:rgba(0,0,0,.32)}
+  .sw{width:38px;height:38px;border-radius:10px;border:1px solid rgba(255,255,255,.14);display:grid;place-items:center;font-weight:900}
+  .meta{display:flex;flex-direction:column;gap:2px}
+  .meta .n{font-weight:800;font-size:13px}
+  .meta .d{opacity:.85;font-size:12px}
+  .foot{padding:12px 16px;border-top:1px solid rgba(255,255,255,.14);display:flex;gap:10px;justify-content:flex-end;align-items:center}
+  .action{
+    cursor:pointer;border-radius:12px;padding:10px 12px;font-weight:900;letter-spacing:.4px;
+    border:1px solid rgba(255,255,255,.20);background:rgba(255,255,255,.06);color:#eaf0ff
+  }
+  .action.primary{border-color:rgba(0,209,255,.6);background:rgba(0,209,255,.12)}
+  .help{opacity:.9;font-size:12px;line-height:1.35}
+  .pill{display:inline-block;padding:2px 8px;border-radius:999px;border:1px solid rgba(255,255,255,.18);background:rgba(255,255,255,.06);margin-right:6px;margin-bottom:6px}
+</style>
+</head>
+<body>
+<canvas id="game"></canvas>
+
+<div id="hud">
+  <div>
+    <b id="hName">-</b>
+    <span class="pill" id="hTrack">Mapa: -</span>
+    <span class="pill" id="hLap">Volta: -</span>
+    <span class="pill" id="hPos">Pos: -</span>
+    <span class="pill" id="hSpd">Vel: -</span>
+  </div>
+  <div style="margin-top:6px">
+    <span class="pill" id="hItem">Item: —</span>
+    <span class="pill" id="hCandy">Balinhas: 0/5</span>
+    <span class="pill" id="hPower">Poder: bloqueado</span>
+  </div>
+  <div style="opacity:.85;margin-top:6px">
+    ↑ acelera | ↓ freia/ré | ←/→ vira | Shift: drift | Espaço: poder (5 balinhas) | X: item | R: reinicia | Esc: menu
+  </div>
+</div>
+
+<div id="menu">
+  <div class="card">
+    <div class="head">
+      <div>
+        <div class="title">VIÇA KART</div>
+        <div class="sub">
+          NPCs corrigidos para não travarem em curvas: follow-point com lookahead adaptativo + raycast em leque + correção pro centro + recuperação local.
+        </div>
+      </div>
+      <div class="sub" style="text-align:right">
+        Capivara: peido verde<br/>
+        Lhama: guspe<br/>
+        Urso: bafo<br/>
+        Caramelo: bate<br/>
+        Panda vermelho: rabada
+      </div>
+    </div>
+    <div class="body">
+      <div class="box">
+        <h3>Piloto</h3>
+        <div class="grid" id="charGrid"></div>
+        <div style="height:10px"></div>
+        <div class="help">
+          <span class="pill">Balinhas</span> pegue os círculos coloridos.<br/>
+          <span class="pill">Espaço</span> poder só com <b>5 balinhas</b> (consome 5).<br/>
+          <span class="pill">Shift</span> drift (solte para mini-turbo).
+        </div>
+      </div>
+      <div class="box">
+        <h3>Mapa</h3>
+        <div class="grid" id="trackGrid"></div>
+        <div style="height:10px"></div>
+        <div class="help">
+          <span class="pill">Sem escapar</span> saiu do asfalto, volta suavemente.<br/>
+          <span class="pill">Caixa</span> pega item (X): Míssil, Cacto, Chuteira.
+        </div>
+      </div>
+    </div>
+    <div class="foot">
+      <button class="action" id="btnTips">Dicas</button>
+      <button class="action primary" id="btnStart">Começar</button>
+    </div>
+  </div>
+</div>
+
+<script>
+(() => {
+  "use strict";
+
+  // ---------- helpers ----------
+  const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
+  const lerp=(a,b,t)=>a+(b-a)*t;
+  const rand=(a,b)=>a+Math.random()*(b-a);
+  const wrapIndex=(i,n)=>{ i%=n; if(i<0)i+=n; return i; };
+  const normAng=(a)=>{ while(a>Math.PI)a-=Math.PI*2; while(a<-Math.PI)a+=Math.PI*2; return a; };
+  const norm2=(x,y)=>{ const m=Math.hypot(x,y)||1; return {x:x/m,y:y/m,m}; };
+  const rot=(x,y,ang)=>({x:x*Math.cos(ang)-y*Math.sin(ang), y:x*Math.sin(ang)+y*Math.cos(ang)});
+
+  // ---------- canvas ----------
+  const canvas = document.getElementById("game");
+  const ctx = canvas.getContext("2d", {alpha:false});
+  let CW=0, CH=0, DPR=1;
+  function resize(){
+    DPR = Math.min(2, window.devicePixelRatio||1);
+    CW = Math.floor(window.innerWidth);
+    CH = Math.floor(window.innerHeight);
+    canvas.width = Math.floor(CW*DPR);
+    canvas.height = Math.floor(CH*DPR);
+    ctx.setTransform(DPR,0,0,DPR,0,0);
+    ctx.imageSmoothingEnabled = false;
+  }
+  window.addEventListener("resize", resize);
+  resize();
+
+  // ---------- UI ----------
+  const ui = {
+    menu: document.getElementById("menu"),
+    charGrid: document.getElementById("charGrid"),
+    trackGrid: document.getElementById("trackGrid"),
+    btnStart: document.getElementById("btnStart"),
+    btnTips: document.getElementById("btnTips"),
+    hName: document.getElementById("hName"),
+    hTrack: document.getElementById("hTrack"),
+    hLap: document.getElementById("hLap"),
+    hPos: document.getElementById("hPos"),
+    hSpd: document.getElementById("hSpd"),
+    hItem: document.getElementById("hItem"),
+    hCandy: document.getElementById("hCandy"),
+    hPower: document.getElementById("hPower"),
+  };
+
+  const ITEMS = { NONE:"—", MISSIL:"Míssil", CACTO:"Cacto", CHUTEIRA:"Chuteira" };
+  const POWERS = {
+    capivara: "Peido verde",
+    lhama: "Guspe",
+    urso: "Bafo",
+    caramelo: "Bate",
+    pandaVermelho: "Rabada"
+  };
+
+  const CHARS = [
+    {id:"capivara", name:"Capivara", c:"#a97c50", top:5.15, acc:0.14, turn:0.050, _seed:1},
+    {id:"urso", name:"Urso", c:"#7a5a3a", top:4.95, acc:0.12, turn:0.046, _seed:2},
+    {id:"caramelo", name:"Caramelo", c:"#d08b3e", top:5.30, acc:0.13, turn:0.052, _seed:3},
+    {id:"lhama", name:"Lhama", c:"#c9c2b5", top:5.05, acc:0.135, turn:0.048, _seed:4},
+    {id:"pandaVermelho", name:"Panda Vermelho", c:"#c2462d", top:5.20, acc:0.13, turn:0.051, _seed:5},
+  ];
+
+  // ---------- surface classification ----------
+  function classifyPixel(r,g,b){
+    if(r<25 && g<25 && b<35) return "wall";
+    const grass = (g>90) && (g>r+30) && (g>b+30);
+    return grass ? "grass" : "road";
+  }
+
+  // ---------- track ----------
+  function makeOff(w,h){
+    const oc = document.createElement("canvas");
+    oc.width=w; oc.height=h;
+    const octx = oc.getContext("2d", {alpha:false});
+    octx.imageSmoothingEnabled=false;
+    return {c:oc,x:octx,w,h, img:null};
+  }
+
+  function buildWaypoints(points, step=62){
+    const wps=[];
+    for(let i=0;i<points.length;i++){
+      const p=points[i], q=points[(i+1)%points.length];
+      const seg = Math.max(2, Math.floor(Math.hypot(q.x-p.x,q.y-p.y)/step));
+      for(let s=0;s<seg;s++){
+        const t=s/seg;
+        wps.push({x:lerp(p.x,q.x,t), y:lerp(p.y,q.y,t), tx:1,ty:0,nx:0,ny:1});
+      }
+    }
+    const n=wps.length;
+    for(let i=0;i<n;i++){
+      const a=wps[wrapIndex(i-1,n)];
+      const b=wps[wrapIndex(i+1,n)];
+      const v=norm2(b.x-a.x,b.y-a.y);
+      wps[i].tx=v.x; wps[i].ty=v.y;
+      wps[i].nx=-v.y; wps[i].ny=v.x;
+    }
+    return wps;
+  }
+
+  function drawTrack(name, points, opts={}){
+    const W = opts.w||1700, H = opts.h||1000;
+    const road = opts.road||108;               // pista um pouco mais larga (ajuda NPC)
+    const off = makeOff(W,H);
+    const g = off.x;
+
+    g.fillStyle="rgb(36,140,60)";
+    g.fillRect(0,0,W,H);
+
+    g.globalAlpha=0.10;
+    g.fillStyle="rgb(255,255,255)";
+    for(let y=0;y<H;y+=28){ for(let x=(y/28)%2?0:14;x<W;x+=28) g.fillRect(x,y,2,2); }
+    g.globalAlpha=1;
+
+    const path = (p)=>{
+      p.moveTo(points[0].x, points[0].y);
+      for(let i=1;i<points.length;i++) p.lineTo(points[i].x, points[i].y);
+      p.closePath();
+    };
+
+    g.lineCap="round"; g.lineJoin="round";
+    g.strokeStyle="rgb(15,15,20)";
+    g.lineWidth=road+34;
+    g.beginPath(); path(g); g.stroke();
+
+    g.strokeStyle="rgb(120,120,120)";
+    g.lineWidth=road;
+    g.beginPath(); path(g); g.stroke();
+
+    g.globalAlpha=0.22;
+    g.strokeStyle="rgb(255,255,255)";
+    g.lineWidth=2;
+    g.setLineDash([16,18]);
+    g.beginPath(); path(g); g.stroke();
+    g.setLineDash([]);
+    g.globalAlpha=1;
+
+    const A=points[0], B=points[1];
+    const dx=B.x-A.x, dy=B.y-A.y;
+    const L=Math.hypot(dx,dy)||1;
+    const nx=-dy/L, ny=dx/L;
+
+    const fa={x:A.x+nx*road*0.55,y:A.y+ny*road*0.55};
+    const fb={x:A.x-nx*road*0.55,y:A.y-ny*road*0.55};
+    g.strokeStyle="rgb(255,212,0)";
+    g.lineWidth=6;
+    g.beginPath(); g.moveTo(fa.x,fa.y); g.lineTo(fb.x,fb.y); g.stroke();
+
+    off.img = g.getImageData(0,0,W,H).data;
+
+    const sampleLocal=(x,y)=>{
+      const ix=Math.floor(x), iy=Math.floor(y);
+      if(ix<0||iy<0||ix>=W||iy>=H) return "wall";
+      const idx=(iy*W+ix)*4;
+      const d=off.img;
+      return classifyPixel(d[idx], d[idx+1], d[idx+2]);
+    };
+
+    // snap limitado (evita “pular” pro outro lado e parecer que sumiu)
+    const snapToRoad=(px,py)=>{
+      if(sampleLocal(px,py)==="road") return {x:px,y:py};
+      const maxR=180, step=6;
+      for(let r=step;r<=maxR;r+=step){
+        const samples = Math.max(18, Math.floor(2*Math.PI*r/step));
+        for(let i=0;i<samples;i++){
+          const ang=(i/samples)*Math.PI*2;
+          const sx=px+Math.cos(ang)*r;
+          const sy=py+Math.sin(ang)*r;
+          if(sampleLocal(sx,sy)==="road") return {x:sx,y:sy};
+        }
+      }
+      return {x:px,y:py};
+    };
+
+    const wps = buildWaypoints(points, opts.wpStep||60);
+
+    const cps = [
+      points[Math.floor(points.length*0.25)],
+      points[Math.floor(points.length*0.50)],
+      points[Math.floor(points.length*0.75)],
+    ].map(p=>({x:p.x,y:p.y}));
+
+    const itemSpawns=[];
+    for(let i=0;i<6;i++){
+      const base = wps[Math.floor((i+1)*wps.length/7)];
+      const raw = {x: base.x + base.nx*rand(-18,18), y: base.y + base.ny*rand(-18,18)};
+      const sn = snapToRoad(raw.x, raw.y);
+      itemSpawns.push({x:sn.x, y:sn.y, cd:0});
+    }
+
+    const candySpawns=[];
+    const candyCount = 20;
+    for(let i=0;i<candyCount;i++){
+      const base = wps[Math.floor((i+1)*wps.length/(candyCount+1))];
+      const raw = {x: base.x + base.nx*rand(-22,22), y: base.y + base.ny*rand(-22,22)};
+      const sn = snapToRoad(raw.x, raw.y);
+      candySpawns.push({x:sn.x, y:sn.y, cd:0});
+    }
+
+    const startRaw = {x:A.x+nx*26, y:A.y+ny*26};
+    const startSnap = snapToRoad(startRaw.x, startRaw.y);
+
+    return {
+      name, W,H, off,
+      roadW: road,
+      start:{x:startSnap.x,y:startSnap.y, ang:Math.atan2(dy,dx)},
+      finish:{a:fa,b:fb, nx,ny, ax:A.x, ay:A.y},
+      checkpoints:cps,
+      waypoints:wps,
+      itemSpawns,
+      candySpawns,
+      sampleLocal,
+      snapToRoad
+    };
+  }
+
+  const TRACKS = [
+    drawTrack("Lagoa Pixel", [
+      {x:260,y:720},{x:380,y:420},{x:680,y:260},{x:980,y:300},{x:1220,y:460},{x:1320,y:720},{x:1120,y:860},{x:820,y:820},{x:560,y:900}
+    ], {road:110, wpStep:60}),
+    drawTrack("Serra Neon", [
+      {x:260,y:760},{x:320,y:480},{x:520,y:320},{x:760,y:260},{x:1020,y:320},{x:1200,y:220},{x:1440,y:240},{x:1500,y:520},{x:1260,y:640},{x:1000,y:560},{x:820,y:700},{x:520,y:820}
+    ], {road:112, wpStep:58}),
+    drawTrack("Dunas do Caramelo", [
+      {x:280,y:620},{x:360,y:340},{x:640,y:240},{x:980,y:260},{x:1320,y:360},{x:1460,y:560},{x:1320,y:780},{x:980,y:820},{x:680,y:760},{x:420,y:820}
+    ], {road:116, wpStep:58})
+  ];
+
+  // ---------- menu ----------
+  let selectedChar = CHARS[0].id;
+  let selectedTrack = TRACKS[0].name;
+
+  function mkBtn(parent, label, desc, color, onClick){
+    const b=document.createElement("div");
+    b.className="btn";
+    const sw=document.createElement("div");
+    sw.className="sw";
+    sw.style.backgroundColor = (color ? color+"33" : "rgba(255,255,255,.06)");
+    sw.style.border = "1px solid rgba(255,255,255,.16)";
+    sw.textContent = label.slice(0,1).toUpperCase();
+    const meta=document.createElement("div");
+    meta.className="meta";
+    const n=document.createElement("div");
+    n.className="n"; n.textContent=label;
+    const d=document.createElement("div");
+    d.className="d"; d.textContent=desc;
+    meta.appendChild(n); meta.appendChild(d);
+    b.appendChild(sw); b.appendChild(meta);
+    b.addEventListener("click", onClick);
+    parent.appendChild(b);
+    return b;
+  }
+
+  function rebuildMenu(){
+    ui.charGrid.innerHTML="";
+    const charButtons = new Map();
+    for(const ch of CHARS){
+      const b = mkBtn(ui.charGrid, ch.name, `Poder: ${POWERS[ch.id]} | 5 balinhas`, ch.c, ()=>{
+        selectedChar = ch.id;
+        for(const [id,el] of charButtons) el.classList.toggle("sel", id===selectedChar);
+      });
+      charButtons.set(ch.id, b);
+    }
+    charButtons.get(selectedChar).classList.add("sel");
+
+    ui.trackGrid.innerHTML="";
+    const trackButtons = new Map();
+    for(const t of TRACKS){
+      const b = mkBtn(ui.trackGrid, t.name, "3 voltas | IA melhor", "#00d1ff", ()=>{
+        selectedTrack = t.name;
+        for(const [nm,el] of trackButtons) el.classList.toggle("sel", nm===selectedTrack);
+      });
+      trackButtons.set(t.name, b);
+    }
+    trackButtons.get(selectedTrack).classList.add("sel");
+  }
+  rebuildMenu();
+
+  ui.btnTips.addEventListener("click", ()=>{
+    alert(
+`Se algum NPC encostar em parede:
+- Ele faz desvio (raycast em leque).
+- Se ainda assim ficar lento por 1s, recupera no trecho à frente (local).`
+    );
+  });
+
+  // ---------- input ----------
+  const down = new Set();
+  const just = new Set();
+  window.addEventListener("keydown", (e)=>{
+    if(["ArrowUp","ArrowDown","ArrowLeft","ArrowRight"," ","Escape","x","X","r","R","Shift"].includes(e.key)) e.preventDefault();
+    if(!down.has(e.key)) just.add(e.key);
+    down.add(e.key);
+    if(e.key==="Escape") toggleMenu(true);
+  }, {passive:false});
+  window.addEventListener("keyup", (e)=>down.delete(e.key), {passive:true});
+  function pressed(key){ return down.has(key); }
+  function consume(key){
+    if(just.has(key)){ just.delete(key); return true; }
+    return false;
+  }
+
+  // ---------- game ----------
+  const STATE = { MENU:0, RACE:1, FINISH:2 };
+  let state = STATE.MENU;
+
+  let track = TRACKS[0];
+  let karts = [];
+  let hazards = [];
+  let raceTime = 0;
+
+  const KART_R = 12;
+  const ITEM_R = 14;
+  const CANDY_R = 10;
+  const LAPS_TO_WIN = 3;
+
+  function sampleSurface(x,y){ return track.sampleLocal(x,y); }
+
+  // ---------- lap logic ----------
+  function finishSide(x,y){
+    const npx = track.finish.nx, npy = track.finish.ny;
+    return ((x-track.finish.ax)*npx + (y-track.finish.ay)*npy) >= 0 ? 1 : -1;
+  }
+
+  function pointToSegmentDist2(px,py, ax,ay, bx,by){
+    const vx=bx-ax, vy=by-ay;
+    const wx=px-ax, wy=py-ay;
+    const c1=wx*vx+wy*vy;
+    if(c1<=0) return (px-ax)*(px-ax)+(py-ay)*(py-ay);
+    const c2=vx*vx+vy*vy;
+    if(c2<=c1) return (px-bx)*(px-bx)+(py-by)*(py-by);
+    const t=c1/c2;
+    const cx=ax+t*vx, cy=ay+t*vy;
+    return (px-cx)*(px-cx)+(py-cy)*(py-cy);
+  }
+
+  function crossedFinish(k){
+    const side = finishSide(k.x,k.y);
+    const changed = (side !== k.prevSide);
+    k.prevSide = side;
+    if(!changed) return false;
+    const a=track.finish.a, b=track.finish.b;
+    const d2 = pointToSegmentDist2(k.x,k.y, a.x,a.y, b.x,b.y);
+    return d2 < (26*26);
+  }
+
+  function updateCheckpoints(k){
+    for(let i=0;i<track.checkpoints.length;i++){
+      if(k.passed[i]) continue;
+      const cp = track.checkpoints[i];
+      const dx = k.x - cp.x, dy = k.y - cp.y;
+      if(dx*dx+dy*dy < (60*60)) k.passed[i]=true;
+    }
+  }
+  const allCpsPassed=(k)=>k.passed[0]&&k.passed[1]&&k.passed[2];
+
+  // ---------- progress/position ----------
+  function nearestWaypointIndexPos(x,y){
+    let best=0, bd=1e18;
+    const wps=track.waypoints;
+    for(let i=0;i<wps.length;i++){
+      const dx=wps[i].x-x, dy=wps[i].y-y;
+      const d=dx*dx+dy*dy;
+      if(d<bd){ bd=d; best=i; }
+    }
+    return best;
+  }
+  function nearestWaypointIndex(k){ return nearestWaypointIndexPos(k.x,k.y); }
+
+  function computeProgress(k){
+    const wps=track.waypoints;
+    const idx = k.isPlayer ? nearestWaypointIndex(k) : (k.aiWp ?? nearestWaypointIndex(k));
+    const next = wps[(idx+1)%wps.length];
+    const dd = (next.x-k.x)*(next.x-k.x)+(next.y-k.y)*(next.y-k.y);
+    k.progress = k.lap*100000 + idx*1000 - dd;
+  }
+  function computePositions(){
+    for(const k of karts) computeProgress(k);
+    const sorted=[...karts].sort((a,b)=>b.progress-a.progress);
+    for(let i=0;i<sorted.length;i++) sorted[i].pos=i+1;
+  }
+
+  // ---------- race setup ----------
+  function resetRace(){
+    hazards.length=0;
+    raceTime=0;
+
+    const start = track.start;
+
+    function makeKart(ch, isPlayer, aiSeed=0){
+      return {
+        ch, isPlayer,
+        x: start.x + rand(-10,10),
+        y: start.y + rand(-10,10),
+        a: start.ang + rand(-0.10,0.10),
+        vx:0, vy:0,
+
+        item: ITEMS.NONE,
+        candies: 0,
+        powerCd: 0,
+
+        stunT: 0,
+        slipT: 0,
+
+        driftOn: false,
+        driftCharge: 0,
+        driftReleaseBoost: 0,
+
+        lap: 1,
+        passed: [false,false,false],
+        prevSide: -1,
+
+        lastRoadX: start.x,
+        lastRoadY: start.y,
+
+        aiWp: 0,
+        stuckT: 0,
+        wallT: 0,
+        aiLane: (aiSeed%2===0 ? 1 : -1) * (0.10 + (aiSeed%3)*0.04), // menor (evita encostar em canto)
+        aiAggro: 0.90 + (aiSeed%5)*0.03,
+      };
+    }
+
+    const playerChar = CHARS.find(c=>c.id===selectedChar) || CHARS[0];
+    karts = [ makeKart(playerChar, true, 0) ];
+
+    const others = CHARS.filter(c=>c.id!==playerChar.id);
+    for(let i=0;i<4;i++){
+      const ch = others[i % others.length];
+      const ai = makeKart(ch,false, i+1);
+      ai.x += (i+1)*18;
+      ai.y += (i%2?14:-14);
+      karts.push(ai);
+    }
+
+    for(const k of karts){
+      const sn = track.snapToRoad(k.x,k.y);
+      k.x=sn.x; k.y=sn.y;
+      k.lastRoadX=sn.x; k.lastRoadY=sn.y;
+      k.prevSide = finishSide(k.x,k.y);
+      if(!k.isPlayer){
+        k.aiWp = nearestWaypointIndex(k);
+        k.stuckT = 0;
+        k.wallT = 0;
+      }
+    }
+
+    for(const it of track.itemSpawns) it.cd = 0;
+    for(const c of track.candySpawns) c.cd = 0;
+  }
+
+  // ---------- item boxes / candies ----------
+  function randomItem(){
+    const r = Math.random();
+    if(r < 0.35) return ITEMS.MISSIL;
+    if(r < 0.70) return ITEMS.CACTO;
+    return ITEMS.CHUTEIRA;
+  }
+
+  function updateItemBoxes(dt){
+    for(const box of track.itemSpawns) box.cd = Math.max(0, box.cd - dt);
+    for(const k of karts){
+      if(k.item!==ITEMS.NONE) continue;
+      for(const box of track.itemSpawns){
+        if(box.cd>0) continue;
+        const dx=k.x-box.x, dy=k.y-box.y;
+        if(dx*dx+dy*dy < (ITEM_R*ITEM_R)){
+          k.item = randomItem();
+          box.cd = 3.0;
+          break;
+        }
+      }
+    }
+  }
+
+  function updateCandies(dt){
+    for(const c of track.candySpawns) c.cd = Math.max(0, c.cd - dt);
+    for(const k of karts){
+      for(const c of track.candySpawns){
+        if(c.cd>0) continue;
+        const dx=k.x-c.x, dy=k.y-c.y;
+        if(dx*dx+dy*dy < (CANDY_R*CANDY_R)){
+          k.candies = Math.min(25, k.candies + 1);
+          c.cd = 4.0;
+          break;
+        }
+      }
+    }
+  }
+
+  // ---------- hazards / interactions ----------
+  function chooseTarget(me){
+    let best=null, bestScore=-1;
+    for(const k of karts){
+      if(k===me) continue;
+      const score = k.progress - me.progress;
+      if(score>bestScore){ bestScore=score; best=k; }
+    }
+    return best;
+  }
+
+  function hitKart(k, impulseX, impulseY, stun=0.55){
+    k.vx += impulseX;
+    k.vy += impulseY;
+    k.stunT = Math.max(k.stunT, stun);
+    k.slipT = Math.max(k.slipT, 0.55);
+  }
+
+  function useItem(k){
+    if(k.item===ITEMS.NONE) return;
+
+    if(k.item===ITEMS.MISSIL){
+      const t = chooseTarget(k);
+      if(t){
+        hazards.push({
+          type:"missil", owner:k, target:t,
+          x:k.x+Math.cos(k.a)*18, y:k.y+Math.sin(k.a)*18,
+          vx:Math.cos(k.a)*8.2, vy:Math.sin(k.a)*8.2,
+          life:4.2
+        });
+      }
+    } else if(k.item===ITEMS.CACTO){
+      hazards.push({ type:"cacto", owner:k, x:k.x-Math.cos(k.a)*18, y:k.y-Math.sin(k.a)*18, r:16, life:14 });
+    } else if(k.item===ITEMS.CHUTEIRA){
+      hazards.push({
+        type:"chuteira", owner:k,
+        x:k.x+Math.cos(k.a)*20, y:k.y+Math.sin(k.a)*20,
+        vx:Math.cos(k.a)*10.0, vy:Math.sin(k.a)*10.0,
+        life:2.6
+      });
+    }
+    k.item = ITEMS.NONE;
+  }
+
+  function canUsePower(k){ return (k.powerCd<=0) && (k.candies>=5); }
+  function spendPower(k){ k.candies = Math.max(0, k.candies - 5); k.powerCd = 2.4; }
+
+  function usePower(k){
+    if(!canUsePower(k)) return;
+    const id = k.ch.id;
+
+    if(id==="capivara"){
+      hazards.push({ type:"peidoVerde", owner:k, x:k.x-Math.cos(k.a)*16, y:k.y-Math.sin(k.a)*16, r:72, life:3.8 });
+      spendPower(k); return;
+    }
+    if(id==="lhama"){
+      hazards.push({ type:"guspe", owner:k, x:k.x+Math.cos(k.a)*20, y:k.y+Math.sin(k.a)*20, vx:Math.cos(k.a)*11.0, vy:Math.sin(k.a)*11.0, life:2.0 });
+      spendPower(k); return;
+    }
+    if(id==="urso"){
+      hazards.push({ type:"bafo", owner:k, x:k.x+Math.cos(k.a)*18, y:k.y+Math.sin(k.a)*18, a:k.a, r:74, life:0.85 });
+      spendPower(k); return;
+    }
+    if(id==="caramelo"){
+      hazards.push({ type:"bate", owner:k, a:k.a, life:0.35 });
+      k.vx += Math.cos(k.a)*3.4;
+      k.vy += Math.sin(k.a)*3.4;
+      spendPower(k); return;
+    }
+    if(id==="pandaVermelho"){
+      hazards.push({ type:"rabada", owner:k, x:k.x, y:k.y, r:64, life:0.55 });
+      spendPower(k); return;
+    }
+  }
+
+  function updateHazards(dt){
+    for(let i=hazards.length-1;i>=0;i--){
+      const h=hazards[i];
+      h.life -= dt;
+      if(h.life<=0){ hazards.splice(i,1); continue; }
+
+      if(h.type==="missil"){
+        const t=h.target;
+        if(!t){ hazards.splice(i,1); continue; }
+        const dx=t.x-h.x, dy=t.y-h.y;
+        const l=Math.hypot(dx,dy)||1;
+        const wantX=dx/l, wantY=dy/l;
+
+        h.vx = lerp(h.vx, wantX*9.2, 0.08);
+        h.vy = lerp(h.vy, wantY*9.2, 0.08);
+        h.x += h.vx*dt*60;
+        h.y += h.vy*dt*60;
+
+        if(sampleSurface(h.x,h.y)==="wall"){ hazards.splice(i,1); continue; }
+
+        for(const k of karts){
+          if(k===h.owner) continue;
+          const d2=(k.x-h.x)*(k.x-h.x)+(k.y-h.y)*(k.y-h.y);
+          if(d2 < (22*22)){
+            hitKart(k, wantX*2.8, wantY*2.8, 0.85);
+            hazards.splice(i,1);
+            break;
+          }
+        }
+      }
+      else if(h.type==="chuteira"){
+        h.x += h.vx*dt*60;
+        h.y += h.vy*dt*60;
+        if(sampleSurface(h.x,h.y)==="wall"){ hazards.splice(i,1); continue; }
+        for(const k of karts){
+          if(k===h.owner) continue;
+          const d2=(k.x-h.x)*(k.x-h.x)+(k.y-h.y)*(k.y-h.y);
+          if(d2 < (22*22)){
+            const l=Math.hypot(h.vx,h.vy)||1;
+            hitKart(k, (h.vx/l)*3.1, (h.vy/l)*3.1, 0.7);
+            hazards.splice(i,1);
+            break;
+          }
+        }
+      }
+      else if(h.type==="cacto"){
+        for(const k of karts){
+          if(k===h.owner) continue;
+          const d2=(k.x-h.x)*(k.x-h.x)+(k.y-h.y)*(k.y-h.y);
+          if(d2 < ((h.r+KART_R)*(h.r+KART_R))){
+            const dx=k.x-h.x, dy=k.y-h.y; const l=Math.hypot(dx,dy)||1;
+            hitKart(k, (dx/l)*2.0, (dy/l)*2.0, 0.55);
+          }
+        }
+      }
+      else if(h.type==="peidoVerde"){
+        for(const k of karts){
+          if(k===h.owner) continue;
+          const d2=(k.x-h.x)*(k.x-h.x)+(k.y-h.y)*(k.y-h.y);
+          if(d2 < (h.r*h.r)){
+            k.slipT = Math.max(k.slipT, 0.95);
+            k.vx *= 0.985;
+            k.vy *= 0.985;
+          }
+        }
+      }
+      else if(h.type==="guspe"){
+        h.x += h.vx*dt*60;
+        h.y += h.vy*dt*60;
+        if(sampleSurface(h.x,h.y)==="wall"){ hazards.splice(i,1); continue; }
+        for(const k of karts){
+          if(k===h.owner) continue;
+          const d2=(k.x-h.x)*(k.x-h.x)+(k.y-h.y)*(k.y-h.y);
+          if(d2 < (22*22)){
+            k.slipT = Math.max(k.slipT, 1.25);
+            k.vx *= 0.75; k.vy *= 0.75;
+            k.stunT = Math.max(k.stunT, 0.25);
+            hazards.splice(i,1);
+            break;
+          }
+        }
+      }
+      else if(h.type==="bafo"){
+        const fx=Math.cos(h.a), fy=Math.sin(h.a);
+        for(const k of karts){
+          if(k===h.owner) continue;
+          const dx=k.x-h.x, dy=k.y-h.y;
+          const d=Math.hypot(dx,dy);
+          if(d > h.r) continue;
+          const dot = (dx*fx + dy*fy) / (d||1);
+          if(dot < 0.35) continue;
+          k.slipT = Math.max(k.slipT, 1.10);
+          k.stunT = Math.max(k.stunT, 0.35);
+          k.vx *= 0.82; k.vy *= 0.82;
+        }
+      }
+      else if(h.type==="bate"){
+        const ox=h.owner;
+        const fx=Math.cos(ox.a), fy=Math.sin(ox.a);
+        const cx = ox.x + fx*22;
+        const cy = ox.y + fy*22;
+        for(const k of karts){
+          if(k===ox) continue;
+          const d2=(k.x-cx)*(k.x-cx)+(k.y-cy)*(k.y-cy);
+          if(d2 < (28*28)) hitKart(k, fx*3.2, fy*3.2, 0.6);
+        }
+      }
+      else if(h.type==="rabada"){
+        for(const k of karts){
+          if(k===h.owner) continue;
+          const dx=k.x-h.x, dy=k.y-h.y;
+          const d=Math.hypot(dx,dy);
+          if(d < h.r){
+            const nx=dx/(d||1), ny=dy/(d||1);
+            hitKart(k, nx*2.8, ny*2.8, 0.55);
+          }
+        }
+      }
+    }
+  }
+
+  // ---------- keep on road + limits ----------
+  function keepOnRoad(k, dt){
+    const s = sampleSurface(k.x,k.y);
+    if(s==="road"){
+      k.lastRoadX = k.x;
+      k.lastRoadY = k.y;
+      return;
+    }
+
+    // puxa pro último ponto bom e também pro snap curto (sem pular longe)
+    const sn = track.snapToRoad(k.x,k.y);
+    const tx = (k.lastRoadX*0.65 + sn.x*0.35);
+    const ty = (k.lastRoadY*0.65 + sn.y*0.35);
+
+    const pull = k.isPlayer ? 0.16 : 0.24;
+    k.x = lerp(k.x, tx, pull);
+    k.y = lerp(k.y, ty, pull);
+
+    k.vx *= k.isPlayer ? 0.93 : 0.87;
+    k.vy *= k.isPlayer ? 0.93 : 0.87;
+  }
+
+  function handleSurfaceAndLimits(k, dt){
+    keepOnRoad(k, dt);
+
+    k.stunT = Math.max(0, k.stunT - dt);
+    k.slipT = Math.max(0, k.slipT - dt);
+    k.powerCd = Math.max(0, k.powerCd - dt);
+    k.driftReleaseBoost = Math.max(0, k.driftReleaseBoost - dt);
+
+    let top = k.ch.top;
+    if(k.slipT>0) top *= 0.88;
+    if(k.driftReleaseBoost>0) top *= 1.18;
+
+    const fr = (k.slipT>0) ? 0.992 : 0.985;
+    k.vx *= fr;
+    k.vy *= fr;
+
+    const sp = Math.hypot(k.vx,k.vy);
+    if(sp>top){
+      const m = top/sp;
+      k.vx *= m; k.vy *= m;
+    }
+  }
+
+  function resolveKartCollisions(){
+    for(let i=0;i<karts.length;i++){
+      for(let j=i+1;j<karts.length;j++){
+        const a=karts[i], b=karts[j];
+        const dx=b.x-a.x, dy=b.y-a.y;
+        const d=Math.hypot(dx,dy)||1;
+        const min=KART_R*2.10;
+        if(d<min){
+          const push=(min-d)/2;
+          const nx=dx/d, ny=dy/d;
+          a.x -= nx*push; a.y -= ny*push;
+          b.x += nx*push; b.y += ny*push;
+          a.vx -= nx*0.05; a.vy -= ny*0.05;
+          b.vx += nx*0.05; b.vy += ny*0.05;
+        }
+      }
+    }
+  }
+
+  // ---------- player controls (MK) ----------
+  function applyPlayerControls(k, dt){
+    if(consume("x")||consume("X")) useItem(k);
+    if(consume("r")||consume("R")) resetRace();
+    if(consume(" ")) usePower(k);
+
+    const up = pressed("ArrowUp");
+    const dn = pressed("ArrowDown");
+    const lf = pressed("ArrowLeft");
+    const rt = pressed("ArrowRight");
+    const driftKey = pressed("Shift");
+
+    if(k.stunT>0) return;
+
+    const throttle = (up?1:0) - (dn?1:0);
+    const steer = (rt?1:0) - (lf?1:0);
+
+    const sp = Math.hypot(k.vx,k.vy);
+
+    const canDrift = driftKey && sp>1.15 && throttle>0;
+    if(canDrift){
+      if(!k.driftOn){ k.driftOn=true; k.driftCharge=0; }
+      k.driftCharge = Math.min(1.6, k.driftCharge + dt*0.95);
+    } else if(k.driftOn){
+      if(k.driftCharge > 0.55){
+        k.driftReleaseBoost = 0.70 + k.driftCharge*0.25;
+        k.vx += Math.cos(k.a) * (0.9 + k.driftCharge*0.6);
+        k.vy += Math.sin(k.a) * (0.9 + k.driftCharge*0.6);
+      }
+      k.driftOn=false;
+      k.driftCharge=0;
+    }
+
+    const turnMul = k.driftOn ? 1.25 : 1.0;
+    const turn = k.ch.turn * (0.92 - 0.32*clamp(sp/k.ch.top,0,1)) * turnMul;
+    k.a += steer * turn * (dt*60);
+
+    const fx = Math.cos(k.a), fy = Math.sin(k.a);
+    const accF = k.ch.acc * (throttle>0 ? 1.0 : 0.82);
+    const brake = (throttle<0 ? 1.05 : 1.0);
+
+    k.vx += fx * (throttle*accF*brake) * (dt*60);
+    k.vy += fy * (throttle*accF*brake) * (dt*60);
+
+    // grip simples: aproxima o vetor de velocidade do ângulo do kart
+    const velAng = Math.atan2(k.vy,k.vx);
+    const da = normAng(k.a - velAng);
+    const rotStep = clamp(da, -0.25*(dt*60), 0.25*(dt*60));
+    const sp2 = Math.hypot(k.vx,k.vy);
+    const na = velAng + rotStep;
+    k.vx = Math.cos(na)*sp2;
+    k.vy = Math.sin(na)*sp2;
+  }
+
+  // ---------- NPC AI (fix geral para qualquer curva) ----------
+  function curvatureAt(i){
+    const wps=track.waypoints, n=wps.length;
+    const a=wps[wrapIndex(i-6,n)], b=wps[wrapIndex(i+6,n)];
+    const va=norm2(b.x-a.x,b.y-a.y);
+    const cur=wps[i];
+    const dot = clamp(cur.tx*va.x + cur.ty*va.y, -1, 1);
+    const ang = Math.acos(dot); // 0..pi
+    return ang;
+  }
+
+  function aiUpdateWp(k){
+    const wps=track.waypoints, n=wps.length;
+
+    // se saiu do asfalto, reseta global (evita travar em índice errado)
+    if(sampleSurface(k.x,k.y)!=="road"){
+      k.aiWp = nearestWaypointIndex(k);
+      return;
+    }
+
+    let base = (k.aiWp ?? nearestWaypointIndex(k));
+    let best=base, bd=1e18;
+
+    for(let o=-12;o<=48;o++){
+      const idx=wrapIndex(base+o,n);
+      const p=wps[idx];
+      const dx=p.x-k.x, dy=p.y-k.y;
+      const d=dx*dx+dy*dy;
+      if(d<bd){ bd=d; best=idx; }
+    }
+    k.aiWp = best;
+    if(bd < (70*70)) k.aiWp = wrapIndex(best+1,n);
+  }
+
+  function rayScore(px,py, dirx,diry){
+    const dists=[24,48,72,96];
+    let score=0;
+    for(const d of dists){
+      const s = sampleSurface(px+dirx*d, py+diry*d);
+      if(s==="road") score += 2;
+      else if(s==="grass") score += 0.5;
+      else { score -= 6; break; }
+    }
+    return score;
+  }
+
+  function chooseSafeDir(px,py, baseDir){
+    // gira o baseDir em leque e escolhe o melhor score
+    const angles=[-0.85,-0.45,0,0.45,0.85];
+    let best={x:baseDir.x,y:baseDir.y,score:-1e9};
+    for(const a of angles){
+      const r = rot(baseDir.x, baseDir.y, a);
+      const nn = norm2(r.x,r.y);
+      const sc = rayScore(px,py, nn.x, nn.y) - Math.abs(a)*0.25; // penaliza desvio grande
+      if(sc > best.score) best={x:nn.x,y:nn.y,score:sc};
+    }
+    return best;
+  }
+
+  function findNearestCandy(k){
+    let best=null, bd=1e18;
+    for(const c of track.candySpawns){
+      if(c.cd>0) continue;
+      const dx=c.x-k.x, dy=c.y-k.y;
+      const d=dx*dx+dy*dy;
+      if(d<bd){ bd=d; best=c; }
+    }
+    if(best && bd < (220*220)) return best;
+    return null;
+  }
+
+  function aiRecoverLocal(k){
+    const wps=track.waypoints, n=wps.length;
+    const i = k.aiWp ?? nearestWaypointIndex(k);
+    const j = wrapIndex(i+18, n); // pula um pouco adiante (sai do canto)
+    const p = wps[j];
+    const lane = (k.aiLane||0) * (track.roadW*0.12);
+    const sn = track.snapToRoad(p.x + p.nx*lane, p.y + p.ny*lane);
+
+    k.x = sn.x; k.y = sn.y;
+    const ang = Math.atan2(p.ty, p.tx);
+    k.a = ang;
+    k.vx = Math.cos(ang)*1.8;
+    k.vy = Math.sin(ang)*1.8;
+
+    k.stuckT = 0;
+    k.wallT = 0;
+  }
+
+  function aiMaybeUsePower(k){
+    if(!canUsePower(k)) return;
+    const t = chooseTarget(k);
+    if(!t) return;
+
+    const dx=t.x-k.x, dy=t.y-k.y;
+    const d=Math.hypot(dx,dy);
+    const fx=Math.cos(k.a), fy=Math.sin(k.a);
+    const dot = (dx*fx + dy*fy) / (d||1);
+
+    if(k.ch.id==="capivara"){
+      if(d < 190 && dot < -0.05) usePower(k);
+    } else if(k.ch.id==="lhama"){
+      if(d < 250 && dot > 0.58) usePower(k);
+    } else if(k.ch.id==="urso"){
+      if(d < 170 && dot > 0.35) usePower(k);
+    } else if(k.ch.id==="caramelo"){
+      if(d < 155 && dot > 0.25) usePower(k);
+    } else if(k.ch.id==="pandaVermelho"){
+      if(d < 125) usePower(k);
+    }
+  }
+
+  function applyAI(k, dt){
+    if(k.stunT>0) return;
+
+    aiUpdateWp(k);
+
+    const wps=track.waypoints, n=wps.length;
+    const i = k.aiWp ?? 0;
+    const cur = wps[i];
+
+    const sp = Math.hypot(k.vx,k.vy);
+
+    // lookahead adaptativo: menor em curva forte
+    const curv = curvatureAt(i); // 0..pi
+    const curvN = clamp(curv/0.95, 0, 1); // ~0..1
+    const lookBase = 14 + Math.floor(Math.min(18, sp*3.0));
+    const look = clamp(Math.floor(lookBase * (1.0 - 0.35*curvN)), 10, 28);
+
+    const wp = wps[wrapIndex(i + look, n)];
+
+    // lane dinâmico: em curva forte, fica mais central (evita canto)
+    const laneScale = (curvN>0.55) ? 0.10 : (curvN>0.35 ? 0.45 : 1.0);
+    const lane = (k.aiLane||0) * (track.roadW*0.12) * laneScale;
+
+    let tx = wp.x + wp.nx*lane;
+    let ty = wp.y + wp.ny*lane;
+
+    // balinha (puxa pouco, para não jogar em parede na curva)
+    if(k.candies < 5){
+      const c = findNearestCandy(k);
+      if(c){
+        tx = lerp(tx, c.x, 0.22);
+        ty = lerp(ty, c.y, 0.22);
+      }
+    }
+
+    // direção base pro alvo (ou tangente)
+    let dx = tx - k.x;
+    let dy = ty - k.y;
+    let base = norm2(dx,dy);
+    let baseDir = (base.m < 0.001) ? {x:cur.tx,y:cur.ty,m:1} : base;
+
+    // escolhe direção segura com raycast em leque
+    const safe = chooseSafeDir(k.x, k.y, baseDir);
+
+    // correção pro centro da pista (cross-track)
+    const laneOff = lane; // offset desejado
+    const cte = ((k.x - cur.x)*cur.nx + (k.y - cur.y)*cur.ny) - laneOff;
+    const centerPush = clamp(cte/140, -1, 1) * 0.55; // mais forte (resolve canto)
+    let dirx = safe.x + (-cur.nx)*centerPush;
+    let diry = safe.y + (-cur.ny)*centerPush;
+    const dn = norm2(dirx,diry);
+    dirx = dn.x; diry = dn.y;
+
+    // detecta perigo de parede à frente (para recovery)
+    const frontS = sampleSurface(k.x + dirx*26, k.y + diry*26);
+    if(frontS==="wall") k.wallT = (k.wallT||0) + dt;
+    else k.wallT = Math.max(0, (k.wallT||0) - dt*0.7);
+
+    // velocidade desejada: reduz em curva + reduz se score ruim
+    const wantA = Math.atan2(diry,dirx);
+    const da = Math.abs(normAng(wantA - k.a));
+    const curve = clamp(da/1.25, 0, 1);
+
+    const safety = clamp((safe.score + 2)/8, 0.35, 1.0); // score baixo => mais lento
+    let desiredSpeed =
+      k.ch.top *
+      (0.98 - 0.42*curve) *
+      (k.aiAggro||0.95) *
+      safety;
+
+    desiredSpeed = Math.max(1.35, desiredSpeed); // nunca fica lento demais (evita “girando”)
+
+    // “pure pursuit velocity”: puxa a velocidade para a desejada
+    const alpha = 0.14;
+    const vdx = dirx * desiredSpeed;
+    const vdy = diry * desiredSpeed;
+    k.vx += (vdx - k.vx) * alpha;
+    k.vy += (vdy - k.vy) * alpha;
+
+    // orienta suavemente pelo movimento
+    const vsp = Math.hypot(k.vx,k.vy);
+    const faceA = (vsp > 0.60) ? Math.atan2(k.vy,k.vx) : Math.atan2(cur.ty,cur.tx);
+    k.a += normAng(faceA - k.a) * 0.20;
+
+    // stuck detection
+    if(vsp < 0.28) k.stuckT = (k.stuckT||0) + dt;
+    else k.stuckT = Math.max(0, (k.stuckT||0) - dt*0.6);
+
+    // recovery local se encostou parede por um tempo ou ficou lento
+    if((k.wallT||0) > 0.22 || (k.stuckT||0) > 1.05){
+      aiRecoverLocal(k);
+    }
+
+    // itens/poder
+    if(k.item!==ITEMS.NONE && Math.random() < dt*0.50) useItem(k);
+    if(Math.random() < dt*0.70) aiMaybeUsePower(k);
+  }
+
+  // ---------- HUD ----------
+  function updateHud(){
+    if(!karts.length) return;
+    const p = karts[0];
+
+    ui.hName.textContent = p.ch.name;
+    ui.hTrack.textContent = `Mapa: ${track.name}`;
+    ui.hLap.textContent = `Volta: ${Math.min(LAPS_TO_WIN,p.lap)}/${LAPS_TO_WIN}`;
+    ui.hPos.textContent = `Pos: ${p.pos||1}/${karts.length}`;
+    ui.hSpd.textContent = `Vel: ${Math.round(Math.hypot(p.vx,p.vy)*18)} km/h`;
+    ui.hItem.textContent = `Item: ${p.item}`;
+
+    ui.hCandy.textContent = `Balinhas: ${Math.min(5,p.candies)}/5`;
+    const powerName = POWERS[p.ch.id] || "Poder";
+    if(p.candies>=5 && p.powerCd<=0) ui.hPower.textContent = `Poder: pronto (${powerName})`;
+    else if(p.candies>=5) ui.hPower.textContent = `Poder: recarga (${powerName})`;
+    else ui.hPower.textContent = `Poder: bloqueado (${powerName})`;
+  }
+
+  // ---------- drawing (karts simples e visíveis) ----------
+  function roundRectPath(c, x, y, w, h, r){
+    r = Math.max(0, Math.min(r, Math.min(w, h)/2));
+    c.beginPath();
+    c.moveTo(x+r, y);
+    c.lineTo(x+w-r, y);
+    c.quadraticCurveTo(x+w, y, x+w, y+r);
+    c.lineTo(x+w, y+h-r);
+    c.quadraticCurveTo(x+w, y+h, x+w-r, y+h);
+    c.lineTo(x+r, y+h);
+    c.quadraticCurveTo(x, y+h, x, y+h-r);
+    c.lineTo(x, y+r);
+    c.quadraticCurveTo(x, y, x+r, y);
+    c.closePath();
+  }
+  function drawWheel(c, x, y, r){
+    c.fillStyle = "rgba(15,15,20,.95)";
+    c.beginPath(); c.arc(x,y,r,0,Math.PI*2); c.fill();
+    c.fillStyle = "rgba(255,255,255,.16)";
+    c.beginPath(); c.arc(x-1,y-1, r*0.55, 0, Math.PI*2); c.fill();
+  }
+  function drawKart(c, k){
+    c.globalAlpha = 0.35;
+    c.fillStyle = "rgb(0,0,0)";
+    c.beginPath(); c.ellipse(0, 11, 20, 12, 0, 0, Math.PI*2); c.fill();
+    c.globalAlpha = 1;
+
+    drawWheel(c, -15, -9, 5.2);
+    drawWheel(c,  15, -9, 5.2);
+    drawWheel(c, -15,  9, 5.2);
+    drawWheel(c,  15,  9, 5.2);
+
+    c.fillStyle = k.ch.c;
+    c.lineWidth = 3;
+    c.strokeStyle = "rgba(0,0,0,.88)";
+    roundRectPath(c, -17, -11, 34, 22, 10);
+    c.fill(); c.stroke();
+
+    c.fillStyle = "rgba(255,255,255,.10)";
+    roundRectPath(c, 15, -7, 12, 14, 7);
+    c.fill();
+    c.strokeStyle = "rgba(0,0,0,.75)";
+    c.lineWidth = 2;
+    roundRectPath(c, 15, -7, 12, 14, 7);
+    c.stroke();
+
+    // “cabeça” simples e visível
+    c.fillStyle = "rgba(232,240,255,.35)";
+    roundRectPath(c, -10, -18, 20, 12, 6);
+    c.fill();
+    c.strokeStyle="rgba(0,0,0,.6)";
+    c.stroke();
+  }
+
+  // ---------- menu / start ----------
+  function toggleMenu(show, finished=false){
+    ui.menu.style.display = show ? "flex" : "none";
+    ui.btnStart.textContent = finished ? "Jogar de novo" : "Começar";
+  }
+
+  ui.btnStart.addEventListener("click", ()=>{
+    track = TRACKS.find(t=>t.name===selectedTrack) || TRACKS[0];
+    resetRace();
+    state = STATE.RACE;
+    toggleMenu(false);
+  });
+
+  // ---------- main loop ----------
+  let last=performance.now();
+  function tick(now){
+    const dt = Math.min(0.033, (now-last)/1000);
+    last=now;
+
+    if(state===STATE.RACE){
+      raceTime += dt;
+
+      for(const k of karts){
+        if(k.isPlayer) applyPlayerControls(k, dt);
+        else applyAI(k, dt);
+      }
+
+      for(const k of karts){
+        k.x += k.vx * dt*60;
+        k.y += k.vy * dt*60;
+
+        handleSurfaceAndLimits(k, dt);
+
+        updateCheckpoints(k);
+        if(crossedFinish(k) && allCpsPassed(k)){
+          k.lap++;
+          k.passed=[false,false,false];
+          if(k.isPlayer && k.lap > LAPS_TO_WIN){
+            state = STATE.FINISH;
+            toggleMenu(true, true);
+          }
+        }
+      }
+
+      resolveKartCollisions();
+      updateHazards(dt);
+      updateItemBoxes(dt);
+      updateCandies(dt);
+      computePositions();
+      updateHud();
+    }
+
+    render();
+    requestAnimationFrame(tick);
+  }
+
+  function render(){
+    ctx.fillStyle="#071023";
+    ctx.fillRect(0,0,CW,CH);
+    if(!track) return;
+
+    const player = karts[0];
+    const scale = Math.max(0.92, Math.min(1.42, Math.min(CW/900, CH/540)));
+    const camX = clamp(player ? player.x : track.W/2, 180, track.W-180);
+    const camY = clamp(player ? player.y : track.H/2, 140, track.H-140);
+
+    ctx.save();
+    ctx.setTransform(
+      DPR*scale, 0, 0, DPR*scale,
+      DPR*(CW/2 - camX*scale),
+      DPR*(CH/2 - camY*scale)
+    );
+
+    ctx.drawImage(track.off.c, 0, 0);
+
+    // candies
+    for(const c of track.candySpawns){
+      if(c.cd>0) continue;
+      const tt = (performance.now()/180)|0;
+      ctx.fillStyle = (tt%3===0) ? "rgb(255,61,209)" : (tt%3===1 ? "rgb(0,209,255)" : "rgb(255,212,0)");
+      ctx.beginPath(); ctx.arc(c.x, c.y, 6.5, 0, Math.PI*2); ctx.fill();
+      ctx.strokeStyle="rgba(0,0,0,.65)";
+      ctx.lineWidth=2; ctx.stroke(); ctx.lineWidth=1;
+    }
+
+    // item boxes
+    for(const box of track.itemSpawns){
+      if(box.cd>0) continue;
+      const tt = (performance.now()/180)|0;
+      ctx.fillStyle = (tt%2===0) ? "rgb(0,209,255)" : "rgb(255,61,209)";
+      ctx.fillRect(box.x-7, box.y-7, 14, 14);
+      ctx.strokeStyle="rgba(0,0,0,.70)";
+      ctx.lineWidth=2; ctx.strokeRect(box.x-7, box.y-7, 14, 14); ctx.lineWidth=1;
+    }
+
+    // hazards (simples)
+    for(const h of hazards){
+      if(h.type==="missil"){
+        ctx.fillStyle="rgb(255,212,0)";
+        ctx.beginPath(); ctx.arc(h.x,h.y,7,0,Math.PI*2); ctx.fill();
+      } else if(h.type==="chuteira"){
+        ctx.fillStyle="rgb(232,240,255)";
+        ctx.fillRect(h.x-8,h.y-5,16,10);
+      } else if(h.type==="cacto"){
+        ctx.fillStyle="rgb(25,255,142)";
+        ctx.beginPath(); ctx.arc(h.x,h.y, 16, 0, Math.PI*2); ctx.fill();
+      } else if(h.type==="peidoVerde"){
+        ctx.globalAlpha=0.16;
+        ctx.fillStyle="rgb(25,255,142)";
+        ctx.beginPath(); ctx.arc(h.x,h.y,h.r,0,Math.PI*2); ctx.fill();
+        ctx.globalAlpha=1;
+      } else if(h.type==="guspe"){
+        ctx.fillStyle="rgb(0,209,255)";
+        ctx.beginPath(); ctx.arc(h.x,h.y,6,0,Math.PI*2); ctx.fill();
+      } else if(h.type==="bafo"){
+        ctx.globalAlpha=0.12;
+        ctx.fillStyle="rgb(255,255,255)";
+        ctx.beginPath(); ctx.arc(h.x,h.y,h.r,0,Math.PI*2); ctx.fill();
+        ctx.globalAlpha=1;
+      } else if(h.type==="rabada"){
+        ctx.globalAlpha=0.12;
+        ctx.fillStyle="rgb(255,61,209)";
+        ctx.beginPath(); ctx.arc(h.x,h.y,h.r,0,Math.PI*2); ctx.fill();
+        ctx.globalAlpha=1;
+      }
+    }
+
+    // karts
+    for(const k of [...karts].sort((a,b)=>a.pos-b.pos)){
+      ctx.globalAlpha = 0.20;
+      ctx.fillStyle = k.ch.c;
+      ctx.beginPath(); ctx.arc(k.x, k.y, 26, 0, Math.PI*2); ctx.fill();
+      ctx.globalAlpha = 1;
+
+      if(k.isPlayer){
+        ctx.fillStyle="rgba(255,212,0,.96)";
+        ctx.beginPath();
+        ctx.moveTo(k.x, k.y-38);
+        ctx.lineTo(k.x-9, k.y-22);
+        ctx.lineTo(k.x+9, k.y-22);
+        ctx.closePath();
+        ctx.fill();
+      }
+
+      ctx.save();
+      ctx.translate(k.x, k.y);
+      ctx.rotate(k.a);
+      drawKart(ctx, k);
+      ctx.restore();
+
+      ctx.font="12px system-ui,Segoe UI,Arial";
+      ctx.textAlign="center";
+      ctx.fillStyle="rgba(0,0,0,.55)";
+      ctx.fillRect(k.x-52, k.y-54, 104, 16);
+      ctx.strokeStyle="rgba(255,255,255,.20)";
+      ctx.strokeRect(k.x-52, k.y-54, 104, 16);
+      ctx.fillStyle="rgba(232,240,255,.95)";
+      ctx.fillText(k.ch.name, k.x, k.y-42);
+    }
+
+    ctx.restore();
+  }
+
+  // ---------- state init ----------
+  toggleMenu(true);
+  requestAnimationFrame(tick);
+})();
+</script>
+</body>
+</html>
