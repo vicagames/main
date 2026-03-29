@@ -1,0 +1,932 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Capivara vs Caramelo</title>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: Arial, Helvetica, sans-serif;
+      background: linear-gradient(180deg, #8fd3ff 0%, #dff6ff 55%, #97c26b 55%, #6ea04b 100%);
+      overflow: hidden;
+    }
+    #hud {
+      position: fixed;
+      top: 12px;
+      left: 50%;
+      transform: translateX(-50%);
+      width: min(900px, calc(100vw - 24px));
+      background: rgba(255,255,255,0.92);
+      border: 3px solid #2e2e2e;
+      border-radius: 16px;
+      padding: 10px 14px;
+      z-index: 10;
+      box-shadow: 0 8px 24px rgba(0,0,0,0.18);
+    }
+    .topline {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 8px;
+      font-weight: bold;
+      font-size: 14px;
+    }
+    .bars {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+    }
+    .bar-wrap { font-size: 13px; }
+    .bar {
+      width: 100%;
+      height: 18px;
+      background: #ddd;
+      border-radius: 999px;
+      overflow: hidden;
+      border: 2px solid #333;
+      margin-top: 4px;
+    }
+    .fill {
+      height: 100%;
+      width: 100%;
+      transition: width 0.18s linear;
+    }
+    .capy { background: #5f4023; }
+    .dog { background: #d68844; }
+    #game {
+      display: block;
+      width: 100vw;
+      height: 100vh;
+    }
+    #overlay {
+      position: fixed;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: rgba(0,0,0,0.25);
+      z-index: 20;
+    }
+    .panel {
+      width: min(560px, calc(100vw - 32px));
+      background: #fffaf0;
+      border: 4px solid #2f2f2f;
+      border-radius: 20px;
+      padding: 22px;
+      text-align: center;
+      box-shadow: 0 12px 30px rgba(0,0,0,0.25);
+    }
+    .panel h1 {
+      margin: 0 0 10px;
+      font-size: 34px;
+    }
+    .panel p {
+      margin: 8px 0;
+      font-size: 16px;
+      line-height: 1.4;
+    }
+    button {
+      margin-top: 14px;
+      border: 3px solid #222;
+      background: #ffd44d;
+      color: #111;
+      font-size: 18px;
+      font-weight: bold;
+      padding: 12px 18px;
+      border-radius: 14px;
+      cursor: pointer;
+    }
+    button:hover { transform: translateY(-1px); }
+    #mobileHint {
+      position: fixed;
+      bottom: 10px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: rgba(255,255,255,0.9);
+      border: 2px solid #333;
+      border-radius: 12px;
+      padding: 8px 12px;
+      font-size: 12px;
+      z-index: 5;
+    }
+  </style>
+</head>
+<body>
+  <div id="hud">
+    <div class="topline">
+      <div>Capivara vs Caramelo</div>
+      <div id="score">Pontos: 0</div>
+      <div id="timer">Tempo: 60</div>
+    </div>
+    <div class="bars">
+      <div class="bar-wrap">
+        Capivara
+        <div class="bar"><div id="capyHp" class="fill capy"></div></div>
+      </div>
+      <div class="bar-wrap">
+        Caramelo
+        <div class="bar"><div id="dogHp" class="fill dog"></div></div>
+      </div>
+    </div>
+  </div>
+
+  <canvas id="game"></canvas>
+
+  <div id="mobileHint">Controles: A/D ou setas para mover, W ou ↑ para pular, Espaço para atacar, Shift para o super</div>
+
+  <div id="overlay">
+    <div class="panel" id="overlayPanel">
+      <h1>Capivara vs Caramelo</h1>
+      <p>Escolha quem você quer controlar.</p>
+      <p><strong>Capivara</strong>: mais pesada e forte no tranco.</p>
+      <p><strong>Caramelo</strong>: mais ágil e ataca com mordida.</p>
+      <div style="display:flex; gap:12px; justify-content:center; flex-wrap:wrap; margin-top:12px;">
+        <button id="chooseCapyBtn">Jogar de Capivara</button>
+        <button id="chooseDogBtn">Jogar de Caramelo</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const canvas = document.getElementById('game');
+    const ctx = canvas.getContext('2d');
+
+    const overlay = document.getElementById('overlay');
+    const overlayPanel = document.getElementById('overlayPanel');
+    const chooseCapyBtn = document.getElementById('chooseCapyBtn');
+    const chooseDogBtn = document.getElementById('chooseDogBtn');
+    const capyHpEl = document.getElementById('capyHp');
+    const dogHpEl = document.getElementById('dogHp');
+    const timerEl = document.getElementById('timer');
+    const scoreEl = document.getElementById('score');
+
+    function resize() {
+      canvas.width = window.innerWidth * devicePixelRatio;
+      canvas.height = window.innerHeight * devicePixelRatio;
+      ctx.setTransform(devicePixelRatio, 0, 0, devicePixelRatio, 0, 0);
+    }
+    window.addEventListener('resize', resize);
+    resize();
+
+    const keys = {};
+    window.addEventListener('keydown', (e) => {
+      keys[e.key.toLowerCase()] = true;
+      if ([" ","ArrowUp","ArrowDown","ArrowLeft","ArrowRight"].includes(e.key)) e.preventDefault();
+    });
+    window.addEventListener('keyup', (e) => {
+      keys[e.key.toLowerCase()] = false;
+    });
+
+    const world = {
+      gravity: 0.6,
+      floorY: () => window.innerHeight - 120,
+      started: false,
+      gameOver: false,
+      timeLeft: 60,
+      score: 0,
+      lastTime: 0,
+      timerAccum: 0,
+      cameraShake: 0,
+      playerRole: 'capy',
+      superCooldownMax: 420,
+    };
+
+    function makeFighter(type, x, color) {
+      const isCapy = type === 'capy';
+      return {
+        type,
+        x,
+        y: world.floorY() - (isCapy ? 86 : 68),
+        w: isCapy ? 138 : 120,
+        h: isCapy ? 86 : 68,
+        vx: 0,
+        vy: 0,
+        speed: isCapy ? 4.2 : 4.0,
+        jump: isCapy ? 10.9 : 10.6,
+        hp: 100,
+        maxHp: 100,
+        facing: 1,
+        visualFacing: 1,
+        turnMomentum: 0,
+        onGround: true,
+        attacking: false,
+        attackTimer: 0,
+        hitCooldown: 0,
+        color,
+        aiJumpCooldown: 0,
+        aiAttackCooldown: 0,
+        damageFlash: 0,
+        attackLanded: false,
+        attackType: isCapy ? 'ram' : 'bite',
+        attackStretch: 0,
+        superMove: false,
+        superTimer: 0,
+        superCooldown: 0,
+        superLanded: false,
+        superPhase: 'none',
+        trail: [],
+      };
+    }
+
+    let capy, dog;
+
+    function resetGame(playerRole = world.playerRole) {
+      world.playerRole = playerRole;
+      capy = makeFighter('capy', 140, '#7a5230');
+      dog = makeFighter('dog', window.innerWidth - 240, '#d98b49');
+      world.started = true;
+      world.gameOver = false;
+      world.timeLeft = 60;
+      world.score = 0;
+      world.lastTime = performance.now();
+      world.timerAccum = 0;
+      world.cameraShake = 0;
+      overlay.style.display = 'none';
+      updateHud();
+      requestAnimationFrame(loop);
+    }
+
+    chooseCapyBtn.addEventListener('click', () => resetGame('capy'));
+    chooseDogBtn.addEventListener('click', () => resetGame('dog'));
+
+    function updateHud() {
+      capyHpEl.style.width = Math.max(0, (capy.hp / capy.maxHp) * 100) + '%';
+      dogHpEl.style.width = Math.max(0, (dog.hp / dog.maxHp) * 100) + '%';
+      timerEl.textContent = 'Tempo: ' + Math.max(0, Math.ceil(world.timeLeft));
+      const label = world.playerRole === 'capy' ? 'Capivara' : 'Caramelo';
+      scoreEl.textContent = label + ' | Pontos: ' + world.score;
+    }
+
+    function rectsOverlap(a, b) {
+      return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
+    }
+
+    function setFacing(f, dir) {
+      if (!dir || dir === 0) return;
+      const next = dir > 0 ? 1 : -1;
+      if (f.facing !== next) {
+        f.turnMomentum = 1;
+      }
+      f.facing = next;
+    }
+
+    function attackHitbox(f) {
+      const isCapy = f.type === 'capy';
+      const range = isCapy ? 62 : 48;
+      const topOffset = isCapy ? 22 : 18;
+      const height = isCapy ? f.h - 34 : f.h - 28;
+      const forward = isCapy ? 20 : 16;
+      return {
+        x: f.facing === 1 ? f.x + f.w - forward : f.x - range + forward,
+        y: f.y + topOffset,
+        w: range,
+        h: height,
+      };
+    }
+
+    function superHitbox(f) {
+      if (f.type === 'capy') {
+        return {
+          x: f.facing === 1 ? f.x + f.w - 10 : f.x - 84,
+          y: f.y + 6,
+          w: 84,
+          h: f.h - 8,
+        };
+      }
+      return {
+        x: f.x + 10,
+        y: f.y + 4,
+        w: f.w - 20,
+        h: f.h - 8,
+      };
+    }
+
+    function canUseSuper(f) {
+      return !f.superMove && !f.attacking && f.superCooldown <= 0;
+    }
+
+    function startSuper(f, target) {
+      if (!canUseSuper(f)) return;
+      f.superMove = true;
+      f.superLanded = false;
+      f.superCooldown = world.superCooldownMax;
+      if (f.type === 'capy') {
+        f.superTimer = 34;
+        f.superPhase = 'wrestling';
+      } else {
+        f.superTimer = 42;
+        f.superPhase = 'leap';
+        setFacing(f, target.x > f.x ? 1 : -1);
+        if (f.onGround) {
+          f.vy = -12.5;
+          f.onGround = false;
+        }
+      }
+    }
+
+    function dealDamage(attacker, target, amount, knockbackScale = 1) {
+      if (target.hitCooldown > 0) return;
+      target.hp -= amount;
+      target.hitCooldown = 22;
+      target.damageFlash = 8;
+      target.vx += attacker.facing * (attacker.type === 'capy' ? 7 : 5.5) * knockbackScale;
+      target.vy = (attacker.type === 'capy' ? -5.5 : -4.5) * knockbackScale;
+      world.cameraShake = 9 + amount * 0.08;
+      if (attacker.type === world.playerRole) world.score += Math.round(amount);
+      if (target.hp <= 0) {
+        target.hp = 0;
+        endGame(attacker.type === 'capy' ? 'Capivara venceu!' : 'Caramelo venceu!');
+      }
+    }
+
+    function endGame(message) {
+      world.gameOver = true;
+      world.started = false;
+      overlay.style.display = 'flex';
+      overlayPanel.innerHTML = `
+        <h1>${message}</h1>
+        <p>Pontuação final: <strong>${world.score}</strong></p>
+        <p>${dog.hp <= 0 ? 'A capivara dominou a arena.' : capy.hp <= 0 ? 'O caramelo levou a melhor dessa vez.' : 'O tempo acabou.'}</p>
+        <div style="display:flex; gap:12px; justify-content:center; flex-wrap:wrap; margin-top:12px;">
+          <button id="restartSameBtn">Jogar de novo</button>
+          <button id="pickRoleBtn">Trocar personagem</button>
+        </div>
+      `;
+      document.getElementById('restartSameBtn').addEventListener('click', () => resetGame(world.playerRole));
+      document.getElementById('pickRoleBtn').addEventListener('click', showCharacterSelection);
+    }
+
+    function showCharacterSelection() {
+      world.started = false;
+      world.gameOver = false;
+      overlay.style.display = 'flex';
+      overlayPanel.innerHTML = `
+        <h1>Capivara vs Caramelo</h1>
+        <p>Escolha quem você quer controlar.</p>
+        <p><strong>Capivara</strong>: mais pesada e forte no tranco.</p>
+        <p><strong>Caramelo</strong>: mais ágil e ataca com mordida.</p>
+        <div style="display:flex; gap:12px; justify-content:center; flex-wrap:wrap; margin-top:12px;">
+          <button id="chooseCapyBtn2">Jogar de Capivara</button>
+          <button id="chooseDogBtn2">Jogar de Caramelo</button>
+        </div>
+      `;
+      document.getElementById('chooseCapyBtn2').addEventListener('click', () => resetGame('capy'));
+      document.getElementById('chooseDogBtn2').addEventListener('click', () => resetGame('dog'));
+    }
+
+    function handlePlayer(fighter) {
+      fighter.vx *= 0.82;
+      if (keys['a'] || keys['arrowleft']) {
+        fighter.vx = -fighter.speed;
+        setFacing(fighter, -1);
+      }
+      if (keys['d'] || keys['arrowright']) {
+        fighter.vx = fighter.speed;
+        setFacing(fighter, 1);
+      }
+      if ((keys['w'] || keys['arrowup']) && fighter.onGround) {
+        fighter.vy = -fighter.jump;
+        fighter.onGround = false;
+      }
+      if (keys[' '] && !fighter.attacking && !fighter.superMove) {
+        fighter.attacking = true;
+        fighter.attackTimer = fighter.type === 'capy' ? 14 : 16;
+        fighter.attackLanded = false;
+      }
+      if ((keys['shift'] || keys['shiftleft'] || keys['shiftright']) && canUseSuper(fighter)) {
+        startSuper(fighter, fighter === capy ? dog : capy);
+      }
+    }
+
+    function handleAI(ai, target) {
+      const dx = (target.x + target.w / 2) - (ai.x + ai.w / 2);
+      ai.vx *= 0.85;
+
+      const stopDistance = 84;
+      if (Math.abs(dx) > stopDistance) {
+        ai.vx = Math.sign(dx) * ai.speed;
+        setFacing(ai, Math.sign(dx) || ai.facing);
+      }
+
+      const attackDistance = ai.type === 'capy' ? 108 : 98;
+      if (Math.abs(dx) < attackDistance && ai.aiAttackCooldown <= 0 && !ai.attacking && !ai.superMove) {
+        ai.attacking = true;
+        ai.attackTimer = ai.type === 'capy' ? 14 : 16;
+        ai.attackLanded = false;
+        ai.aiAttackCooldown = ai.type === 'capy' ? 36 : 42;
+      }
+
+      if (canUseSuper(ai) && ((ai.type === 'capy' && Math.abs(dx) < 130 && Math.random() < 0.008) || (ai.type === 'dog' && Math.abs(dx) > 70 && Math.abs(dx) < 170 && Math.random() < 0.008))) {
+        startSuper(ai, target);
+      }
+
+      if (ai.onGround && Math.abs(dx) > 170 && ai.aiJumpCooldown <= 0 && Math.random() < 0.02) {
+        ai.vy = -ai.jump;
+        ai.onGround = false;
+        ai.aiJumpCooldown = 70;
+      }
+
+      if (ai.aiJumpCooldown > 0) ai.aiJumpCooldown--;
+      if (ai.aiAttackCooldown > 0) ai.aiAttackCooldown--;
+    }
+
+    function updateFighter(f) {
+      const target = f === capy ? dog : capy;
+
+      f.visualFacing += (f.facing - f.visualFacing) * 0.22;
+      if (Math.abs(f.visualFacing) < 0.08) {
+        f.visualFacing = 0.08 * f.facing;
+      }
+      f.turnMomentum *= 0.84;
+
+      if (f.superCooldown > 0) f.superCooldown--;
+
+      if (f.superMove) {
+        if (f.type === 'capy') {
+          f.vx = f.facing * 8.2;
+          f.attackStretch = Math.min(1.35, f.attackStretch + 0.16);
+          f.superTimer--;
+          if (f.superTimer <= 0) {
+            f.superMove = false;
+            f.superPhase = 'none';
+            f.attackStretch *= 0.4;
+          }
+        } else {
+          if (f.superPhase === 'leap') {
+            f.vx = f.facing * 6.2;
+            f.attackStretch = Math.min(1.25, f.attackStretch + 0.14);
+            if (!f.superLanded && ((f.facing === 1 && f.x > target.x + target.w * 0.4) || (f.facing === -1 && f.x + f.w < target.x + target.w * 0.6))) {
+              f.superPhase = 'behind-bite';
+              setFacing(f, -f.facing);
+              f.vx = f.facing * 5.8;
+              f.vy = -1.5;
+            }
+          } else if (f.superPhase === 'behind-bite') {
+            f.vx = f.facing * 5.8;
+            f.attackStretch = Math.min(1.35, f.attackStretch + 0.18);
+          }
+          f.superTimer--;
+          if (f.superTimer <= 0) {
+            f.superMove = false;
+            f.superPhase = 'none';
+            f.attackStretch *= 0.4;
+          }
+        }
+      } else if (f.attacking) {
+        if (f.type === 'capy') {
+          f.vx += f.facing * 0.72;
+          f.attackStretch = Math.min(1, f.attackStretch + 0.14);
+        } else {
+          f.vx += f.facing * 0.45;
+          f.attackStretch = Math.min(1, f.attackStretch + 0.18);
+        }
+      } else {
+        f.attackStretch *= 0.72;
+      }
+
+      f.x += f.vx;
+      f.y += f.vy;
+      f.vy += world.gravity;
+
+      if (f.y + f.h >= world.floorY()) {
+        f.y = world.floorY() - f.h;
+        f.vy = 0;
+        f.onGround = true;
+      } else {
+        f.onGround = false;
+      }
+
+      if (f.x < 20) f.x = 20;
+      if (f.x + f.w > window.innerWidth - 20) f.x = window.innerWidth - 20 - f.w;
+
+      f.trail.push({ x: f.x + f.w / 2, y: f.y + f.h / 2, alpha: f.superMove ? 0.18 : 0.08, type: f.type });
+      if (f.trail.length > 8) f.trail.shift();
+      f.trail.forEach(t => t.alpha *= 0.8);
+      f.trail = f.trail.filter(t => t.alpha > 0.02);
+
+      if (f.attackTimer > 0) {
+        f.attackTimer--;
+        if (f.attackTimer === 0) {
+          f.attacking = false;
+          f.attackLanded = false;
+        }
+      }
+      if (f.hitCooldown > 0) f.hitCooldown--;
+      if (f.damageFlash > 0) f.damageFlash--;
+    }
+
+    function resolveAttacks() {
+      if (capy.attacking && !capy.attackLanded && capy.attackTimer <= 8 && capy.attackTimer >= 5) {
+        if (rectsOverlap(attackHitbox(capy), dog)) {
+          dealDamage(capy, dog, 16);
+          capy.attackLanded = true;
+        }
+      }
+      if (dog.attacking && !dog.attackLanded && dog.attackTimer <= 10 && dog.attackTimer >= 6) {
+        if (rectsOverlap(attackHitbox(dog), capy)) {
+          dealDamage(dog, capy, 11);
+          dog.attackLanded = true;
+        }
+      }
+
+      if (capy.superMove && !capy.superLanded && capy.superTimer <= 24 && capy.superTimer >= 12) {
+        if (rectsOverlap(superHitbox(capy), dog)) {
+          dealDamage(capy, dog, 30, 1.45);
+          dog.vy = -8.5;
+          dog.vx = capy.facing * 10;
+          capy.superLanded = true;
+        }
+      }
+
+      if (dog.superMove && !dog.superLanded && dog.superPhase === 'behind-bite') {
+        const backZone = {
+          x: capy.facing === 1 ? capy.x - 10 : capy.x + capy.w - 38,
+          y: capy.y + 10,
+          w: 48,
+          h: capy.h - 16,
+        };
+        if (rectsOverlap(superHitbox(dog), backZone)) {
+          dealDamage(dog, capy, 26, 0.9);
+          capy.vx = dog.facing * 2.5;
+          capy.vy = -6.5;
+          dog.superLanded = true;
+        }
+      }
+    }
+
+    function getPlayerFighter() {
+      return world.playerRole === 'capy' ? capy : dog;
+    }
+
+    function getAIFighter() {
+      return world.playerRole === 'capy' ? dog : capy;
+    }
+
+    function drawGround() {
+      const floor = world.floorY();
+
+      const grassGrad = ctx.createLinearGradient(0, floor, 0, window.innerHeight);
+      grassGrad.addColorStop(0, '#86b85b');
+      grassGrad.addColorStop(0.45, '#6d9d49');
+      grassGrad.addColorStop(1, '#4d6e33');
+      ctx.fillStyle = grassGrad;
+      ctx.fillRect(0, floor, window.innerWidth, window.innerHeight - floor);
+
+      ctx.fillStyle = 'rgba(40,70,28,0.18)';
+      for (let i = 0; i < window.innerWidth; i += 22) {
+        const h = 16 + Math.sin(i * 0.08) * 6;
+        ctx.fillRect(i, floor + 18, 2, h);
+        ctx.fillRect(i + 6, floor + 24, 2, h * 0.8);
+      }
+
+      const mudGrad = ctx.createLinearGradient(window.innerWidth * 0.33, floor + 4, window.innerWidth * 0.66, floor + 58);
+      mudGrad.addColorStop(0, '#6a4b30');
+      mudGrad.addColorStop(1, '#3f2c1c');
+      ctx.fillStyle = mudGrad;
+      ctx.beginPath();
+      ctx.ellipse(window.innerWidth * 0.52, floor + 26, 220, 34, 0, 0, Math.PI * 2);
+      ctx.fill();
+
+      const waterGrad = ctx.createLinearGradient(0, floor + 4, 0, floor + 44);
+      waterGrad.addColorStop(0, 'rgba(130,210,240,0.85)');
+      waterGrad.addColorStop(1, 'rgba(60,140,170,0.9)');
+      ctx.fillStyle = waterGrad;
+      ctx.beginPath();
+      ctx.ellipse(window.innerWidth * 0.52, floor + 24, 186, 24, 0, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.strokeStyle = 'rgba(255,255,255,0.22)';
+      ctx.lineWidth = 1.3;
+      for (let i = -2; i <= 2; i++) {
+        ctx.beginPath();
+        ctx.ellipse(window.innerWidth * 0.52, floor + 24 + i * 2.5, 120 + i * 18, 8, 0, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+    }
+
+    function drawCloud(x, y, s) {
+      const grad = ctx.createLinearGradient(x, y - 24 * s, x, y + 30 * s);
+      grad.addColorStop(0, 'rgba(255,255,255,0.95)');
+      grad.addColorStop(1, 'rgba(235,243,248,0.82)');
+      ctx.fillStyle = grad;
+      ctx.beginPath();
+      ctx.arc(x, y, 24 * s, 0, Math.PI * 2);
+      ctx.arc(x + 24 * s, y - 12 * s, 22 * s, 0, Math.PI * 2);
+      ctx.arc(x + 52 * s, y, 26 * s, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    function drawFighter(f) {
+      const isCapy = f.type === 'capy';
+      const shakeX = (Math.random() - 0.5) * (world.cameraShake > 0 ? 2 : 0);
+      const x = f.x + shakeX;
+      const y = f.y;
+      const speedFactor = Math.min(1, Math.abs(f.vx) / 4.5);
+      const runCycle = f.onGround ? Math.sin(performance.now() / 120 + f.x / 22) * speedFactor : 0;
+      const runCycle2 = f.onGround ? Math.cos(performance.now() / 120 + f.x / 22) * speedFactor : 0;
+      const attackPush = (f.attacking || f.superMove) ? f.attackStretch * (isCapy ? 12 : 8) : 0;
+      const crouch = (f.attacking || f.superMove) ? f.attackStretch * (isCapy ? 4 : 3) : 0;
+
+      f.trail.forEach(t => {
+        ctx.save();
+        ctx.globalAlpha = t.alpha;
+        ctx.fillStyle = t.type === 'capy' ? '#7f5a39' : '#d48a48';
+        ctx.beginPath();
+        ctx.ellipse(t.x, t.y, t.type === 'capy' ? 38 : 30, t.type === 'capy' ? 18 : 15, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+      });
+
+      ctx.save();
+      if (f.damageFlash > 0) ctx.globalAlpha = 0.78;
+
+      ctx.fillStyle = 'rgba(0,0,0,0.2)';
+      ctx.beginPath();
+      ctx.ellipse(x + f.w / 2, world.floorY() + 5, f.w * 0.33, 9 + speedFactor * 2, 0, 0, Math.PI * 2);
+      ctx.fill();
+
+      const turnAngle = f.turnMomentum * 0.22 * (f.facing === 1 ? 1 : -1);
+      ctx.translate(x + f.w / 2, y + f.h * 0.55);
+      ctx.rotate(turnAngle);
+      ctx.scale(f.visualFacing, 1);
+      ctx.translate(-(x + f.w / 2), -(y + f.h * 0.55));
+
+      if (isCapy) {
+        const furGrad = ctx.createLinearGradient(x + 6, y + 12, x + f.w, y + f.h);
+        furGrad.addColorStop(0, '#9d7a57');
+        furGrad.addColorStop(0.34, '#846142');
+        furGrad.addColorStop(0.75, '#6a492d');
+        furGrad.addColorStop(1, '#4d3420');
+
+        const bellyGrad = ctx.createLinearGradient(x + 54, y + 30, x + 54, y + 74);
+        bellyGrad.addColorStop(0, '#8d6947');
+        bellyGrad.addColorStop(1, '#6d4c31');
+
+        ctx.fillStyle = furGrad;
+        ctx.beginPath();
+        ctx.ellipse(x + 68 + attackPush * 0.55, y + 48 - crouch, 56, 28, -0.02, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.fillStyle = bellyGrad;
+        ctx.beginPath();
+        ctx.ellipse(x + 74 + attackPush * 0.35, y + 55 - crouch * 0.5, 34, 16, 0.08, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.fillStyle = furGrad;
+        ctx.beginPath();
+        ctx.ellipse(x + 105 + attackPush, y + 38 - crouch, 28, 20, 0.08, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.fillStyle = '#69482e';
+        ctx.beginPath();
+        ctx.ellipse(x + 98 + attackPush, y + 28 - crouch * 0.4, 4.3, 5.8, 0, 0, Math.PI * 2);
+        ctx.ellipse(x + 112 + attackPush, y + 30 - crouch * 0.3, 4.1, 5.4, 0, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.fillStyle = '#36251a';
+        ctx.beginPath();
+        ctx.arc(x + 112 + attackPush, y + 38 - crouch, 2.4, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.fillStyle = '#251912';
+        ctx.beginPath();
+        ctx.ellipse(x + 122 + attackPush, y + 41 - crouch * 0.8, 4.2, 3.1, 0, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.strokeStyle = 'rgba(255,255,255,0.11)';
+        ctx.lineWidth = 1.2;
+        ctx.beginPath();
+        ctx.moveTo(x + 32, y + 31 - crouch * 0.2);
+        ctx.quadraticCurveTo(x + 66, y + 18 - crouch, x + 112, y + 31 - crouch * 0.35);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(x + 36, y + 39 - crouch * 0.2);
+        ctx.quadraticCurveTo(x + 72, y + 32 - crouch * 0.7, x + 104, y + 39 - crouch * 0.2);
+        ctx.stroke();
+
+        ctx.fillStyle = '#5a3d28';
+        const capyLegs = [34, 56, 88, 110];
+        capyLegs.forEach((lx, idx) => {
+          const swing = (idx % 2 === 0 ? runCycle : runCycle2) * 8;
+          const lift = Math.max(0, swing) * 7;
+          const back = swing * 2.2;
+          ctx.beginPath();
+          ctx.roundRect(x + lx + back, y + 58 + lift - crouch * 0.25, 10, 24 - lift * 0.45, 4);
+          ctx.fill();
+          ctx.fillStyle = '#3c291d';
+          ctx.beginPath();
+          ctx.ellipse(x + lx + 5 + back, y + 80 + lift * 0.2 - crouch * 0.25, 7, 3.4, 0, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.fillStyle = '#5a3d28';
+        });
+
+        ctx.strokeStyle = '#4a3120';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(x + 118 + attackPush, y + 44 - crouch);
+        ctx.quadraticCurveTo(x + 126 + attackPush, y + 46 - crouch * 0.8, x + 120 + attackPush, y + 49 - crouch * 0.4);
+        ctx.stroke();
+
+        if (f.superMove) {
+          ctx.strokeStyle = 'rgba(255,245,220,0.55)';
+          ctx.lineWidth = 3;
+          ctx.beginPath();
+          ctx.arc(x + 102 + attackPush, y + 36, 26, -0.8, 0.95);
+          ctx.stroke();
+        }
+      } else {
+        const coatGrad = ctx.createLinearGradient(x + 8, y + 6, x + f.w, y + f.h);
+        coatGrad.addColorStop(0, '#edb16e');
+        coatGrad.addColorStop(0.45, '#d18846');
+        coatGrad.addColorStop(0.8, '#b36a31');
+        coatGrad.addColorStop(1, '#7a431f');
+
+        const chestGrad = ctx.createLinearGradient(x + 76, y + 24, x + 90, y + 64);
+        chestGrad.addColorStop(0, '#f4d3a8');
+        chestGrad.addColorStop(1, '#dbb07b');
+
+        ctx.fillStyle = coatGrad;
+        ctx.beginPath();
+        ctx.ellipse(x + 56 + attackPush * 0.45, y + 40 - crouch, 40, 22, 0.02, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.fillStyle = chestGrad;
+        ctx.beginPath();
+        ctx.ellipse(x + 78 + attackPush * 0.3, y + 43 - crouch * 0.7, 20, 14, 0.12, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.fillStyle = coatGrad;
+        ctx.beginPath();
+        ctx.ellipse(x + 93 + attackPush, y + 31 - crouch, 25, 18, 0.04, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.fillStyle = '#8f5228';
+        const earBaseX = x + 87 + attackPush;
+        ctx.beginPath();
+        ctx.moveTo(earBaseX - 1, y + 19 - crouch * 0.5);
+        ctx.lineTo(earBaseX + 3, y + 4 - Math.abs(runCycle) * 2);
+        ctx.lineTo(earBaseX + 10, y + 18 - crouch * 0.5);
+        ctx.closePath();
+        ctx.fill();
+        ctx.beginPath();
+        ctx.moveTo(earBaseX + 11, y + 20 - crouch * 0.4);
+        ctx.lineTo(earBaseX + 16, y + 6 - Math.abs(runCycle2) * 2);
+        ctx.lineTo(earBaseX + 21, y + 20 - crouch * 0.4);
+        ctx.closePath();
+        ctx.fill();
+
+        ctx.fillStyle = '#231913';
+        ctx.beginPath();
+        ctx.arc(x + 99 + attackPush, y + 30 - crouch, 2.5, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.fillStyle = '#f3d7af';
+        ctx.beginPath();
+        ctx.ellipse(x + 106 + attackPush, y + 36 - crouch * 0.8, 11.5, 8, 0, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.fillStyle = '#2b1c15';
+        ctx.beginPath();
+        ctx.ellipse(x + 112 + attackPush, y + 35 - crouch * 0.8, 3.5, 2.5, 0, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.strokeStyle = 'rgba(255,255,255,0.10)';
+        ctx.lineWidth = 1.1;
+        ctx.beginPath();
+        ctx.moveTo(x + 28, y + 29 - crouch * 0.2);
+        ctx.quadraticCurveTo(x + 59, y + 19 - crouch * 0.5, x + 94, y + 28 - crouch * 0.15);
+        ctx.stroke();
+
+        if (f.attacking || (f.superMove && f.superPhase === 'behind-bite')) {
+          ctx.strokeStyle = '#3a2418';
+          ctx.lineWidth = 1.5;
+          ctx.beginPath();
+          ctx.moveTo(x + 111 + attackPush, y + 37 - crouch);
+          ctx.lineTo(x + 121 + attackPush, y + 41 - crouch * 0.7);
+          ctx.stroke();
+          ctx.fillStyle = '#fdfdfd';
+          ctx.beginPath();
+          ctx.moveTo(x + 110 + attackPush, y + 38 - crouch * 0.8);
+          ctx.lineTo(x + 114 + attackPush, y + 44 - crouch * 0.4);
+          ctx.lineTo(x + 117 + attackPush, y + 38 - crouch * 0.8);
+          ctx.closePath();
+          ctx.fill();
+        }
+
+        ctx.fillStyle = '#8e522a';
+        const dogLegs = [30, 50, 74, 94];
+        dogLegs.forEach((lx, idx) => {
+          const swing = (idx % 2 === 0 ? runCycle : runCycle2) * 10;
+          const lift = Math.max(0, swing) * 7;
+          const back = swing * 2.1;
+          ctx.beginPath();
+          ctx.roundRect(x + lx + back, y + 50 + lift - crouch * 0.2, 8.5, 22 - lift * 0.45, 4);
+          ctx.fill();
+          ctx.fillStyle = '#41271a';
+          ctx.beginPath();
+          ctx.ellipse(x + lx + 4 + back, y + 70 + lift * 0.2 - crouch * 0.2, 6, 3, 0, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.fillStyle = '#8e522a';
+        });
+
+        ctx.strokeStyle = '#9b5c2d';
+        ctx.lineWidth = 4.5;
+        ctx.beginPath();
+        ctx.moveTo(x + 18, y + 34 - crouch * 0.1);
+        ctx.quadraticCurveTo(x - 2, y + 18 - Math.abs(runCycle) * 5, x + 4, y + 5 - Math.abs(runCycle2) * 3);
+        ctx.stroke();
+
+        if (f.superMove && f.superPhase === 'leap') {
+          ctx.strokeStyle = 'rgba(255,240,210,0.5)';
+          ctx.lineWidth = 2.5;
+          ctx.beginPath();
+          ctx.arc(x + 76, y + 10, 34, 0.15, 1.4);
+          ctx.stroke();
+        }
+      }
+
+      ctx.restore();
+
+      if (f.attacking || f.superMove) {
+        const hb = f.superMove ? superHitbox(f) : attackHitbox(f);
+        const impactGrad = ctx.createRadialGradient(
+          hb.x + hb.w * 0.6,
+          hb.y + hb.h * 0.5,
+          4,
+          hb.x + hb.w * 0.6,
+          hb.y + hb.h * 0.5,
+          hb.w * 0.8
+        );
+        impactGrad.addColorStop(0, 'rgba(255,255,255,0.14)');
+        impactGrad.addColorStop(0.4, isCapy ? 'rgba(151,108,77,0.16)' : 'rgba(224,153,86,0.14)');
+        impactGrad.addColorStop(1, 'rgba(255,255,255,0)');
+        ctx.fillStyle = impactGrad;
+        ctx.beginPath();
+        ctx.ellipse(hb.x + hb.w / 2, hb.y + hb.h / 2, hb.w * 0.68, hb.h * 0.66, 0, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+
+    function draw() {
+      const skyGrad = ctx.createLinearGradient(0, 0, 0, window.innerHeight);
+      skyGrad.addColorStop(0, '#87cffa');
+      skyGrad.addColorStop(0.48, '#d9f1ff');
+      skyGrad.addColorStop(0.75, '#dff1d6');
+      skyGrad.addColorStop(1, '#b7cb95');
+      ctx.fillStyle = skyGrad;
+      ctx.fillRect(0, 0, window.innerWidth, window.innerHeight);
+
+      ctx.fillStyle = 'rgba(255,255,255,0.18)';
+      ctx.beginPath();
+      ctx.ellipse(window.innerWidth * 0.78, 92, 70, 22, -0.1, 0, Math.PI * 2);
+      ctx.fill();
+
+      drawCloud(120, 110, 1.1);
+      drawCloud(window.innerWidth - 260, 150, 0.9);
+      drawCloud(window.innerWidth * 0.45, 90, 0.75);
+      drawGround();
+      drawFighter(capy);
+      drawFighter(dog);
+    }
+
+    function loop(now) {
+      if (!world.started || world.gameOver) return;
+
+      const dt = Math.min(32, now - world.lastTime);
+      world.lastTime = now;
+      world.timerAccum += dt;
+
+      if (world.timerAccum >= 1000) {
+        world.timeLeft -= Math.floor(world.timerAccum / 1000);
+        world.timerAccum %= 1000;
+        if (world.timeLeft <= 0) {
+          world.timeLeft = 0;
+          if (capy.hp === dog.hp) endGame('Empate!');
+          else endGame(capy.hp > dog.hp ? 'Capivara venceu no tempo!' : 'Caramelo venceu no tempo!');
+        }
+      }
+
+      handlePlayer(getPlayerFighter());
+      handleAI(getAIFighter(), getPlayerFighter());
+      updateFighter(capy);
+      updateFighter(dog);
+      resolveAttacks();
+
+      if (world.cameraShake > 0) world.cameraShake -= 0.4;
+
+      updateHud();
+      draw();
+
+      if (!world.gameOver) requestAnimationFrame(loop);
+    }
+
+    // Initial draw behind overlay
+    capy = makeFighter('capy', 140, '#7a5230');
+    dog = makeFighter('dog', window.innerWidth - 240, '#d98b49');
+    draw();
+  </script>
+</body>
+</html>
